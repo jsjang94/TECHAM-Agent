@@ -33,9 +33,13 @@ $ npm run build:mac
 $ npm run build:linux
 ```
 
-## 빌드 방법
-# 코드 번역(Vite)을 먼저 한번 해주고
-npm run build
+## 빌드 파일 뽑는 방법
+코드 번역(Vite)을 먼저 한번 해주고
+```bash
+$ npm run build
+```
 
-# 애플 서명(도장)을 완벽하게 무시하고, 강제로 Mac용(M1/M2/M3) dmg를 뽑아내는 명령어!
+애플 서명(도장)을 완벽하게 무시하고, 강제로 Mac용(M1/M2/M3) dmg를 뽑아내는 명령어!
+```bash
 npx electron-builder --mac --arm64 -c.mac.identity=null
+```
