@@ -143,7 +143,7 @@ export default function ChatWindow({
 
             {activeTab === 'zendesk' && (
               <div>
-                <input placeholder="서브도메인 (예: com2us)" value={form.zendeskSubdomain} onChange={e => setForm({...form, zendeskSubdomain: e.target.value})} style={inputStyle} />
+                <input placeholder="서브도메인 (예: com2usplatformcorp)" value={form.zendeskSubdomain} onChange={e => setForm({...form, zendeskSubdomain: e.target.value})} style={inputStyle} />
                 <input placeholder="Zendesk 로그인 이메일" value={form.zendeskEmail} onChange={e => setForm({...form, zendeskEmail: e.target.value})} style={inputStyle} />
                 <input type="password" placeholder="Zendesk API Token" value={form.zendeskToken} onChange={e => setForm({...form, zendeskToken: e.target.value})} style={inputStyle} />
               </div>

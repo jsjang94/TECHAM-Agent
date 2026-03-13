@@ -1,0 +1,38 @@
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import { workerToolDeclarations, executeMcpTool } from '../mcp/tools';
+
+export async function runWorkerAgent(directive: string, config: any): Promise<string> {
+  const genAI = new GoogleGenerativeAI(config.apiKey);
+  
+  // 🌟 행동대장: 저렴하고 빠른
+  const workerModel = genAI.getGenerativeModel({ 
+    model: "gemini-2.5-flash",
+    tools: [{ functionDeclarations: workerToolDeclarations }]
+  });
+
+  const chat = workerModel.startChat({
+    history: [{ 
+      role: "user", 
+      parts: [{ text: "너는 사내 시스템 검색 전문 행동대장이야. 지휘관의 명령을 받으면 알맞은 도구를 찾아 검색하고, 방대한 데이터에서 핵심 내용과 '티켓/문서 링크(URL)'만 뽑아서 보고서 형태로 요약해." }] 
+    }]
+  });
+
+  let result = await chat.sendMessage(directive);
+  let functionCalls = result.response.functionCalls();
+
+  // 도구를 써야 한다면 API를 찔러서 결과를 가져옴
+  while (functionCalls && functionCalls.length > 0) {
+    const responses = await Promise.all(functionCalls.map(async (call) => {
+      const rawData = await executeMcpTool(call.name, call.args, config);
+      return { functionResponse: { name: call.name, response: { content: rawData } } };
+    }));
+    result = await chat.sendMessage(responses);
+    functionCalls = result.response.functionCalls();
+  }
+
+  // 🌟 토큰 다이어트: 방대한 Raw 데이터를 핵심만 압축해서 지휘관에게 전달
+  const summaryPrompt = `방금 검색한 내용들 중 지휘관의 명령("${directive}")에 부합하는 내용만 팩트 위주로 요약해. 티켓 번호나 링크(URL)가 있다면 절대로 누락하지 말고 포함시켜. 검색 결과가 없다면 없다고 솔직히 말해.`;
+  const summaryResult = await chat.sendMessage(summaryPrompt);
+  
+  return summaryResult.response.text();
+}
