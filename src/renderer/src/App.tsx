@@ -3,7 +3,6 @@ import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai'
 import hiveAgentImg from './assets/hivebot.png'
 import ChatWindow from './components/ChatWindow'
 
-// 안전하게 배열 로컬스토리지 불러오기
 const safeParse = (key: string, defaultVal: string[]) => {
   try { return JSON.parse(localStorage.getItem(key) || 'null') || defaultVal; } 
   catch { return defaultVal; }
@@ -18,9 +17,8 @@ export default function App() {
     confUrl: localStorage.getItem('hive_conf_url') || 'https://com2us.atlassian.net',
     confEmail: localStorage.getItem('hive_conf_email') || '',
     confToken: localStorage.getItem('hive_conf_token') || '',
-    // 🌟 단일 스페이스에서 다중 스페이스(배열)로 변경!
     confSpaces: safeParse('hive_conf_spaces', ['GCPTAM']),
-    jiraSpaces: safeParse('hive_jira_spaces', ['GCPTAM']),
+    jiraSpaces: safeParse('hive_jira_spaces', ['']),
     zendeskSubdomain: localStorage.getItem('hive_zendesk_subdomain') || '',
     zendeskEmail: localStorage.getItem('hive_zendesk_email') || '',
     zendeskToken: localStorage.getItem('hive_zendesk_token') || ''
@@ -30,6 +28,10 @@ export default function App() {
   const [inputText, setInputText] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [messages, setMessages] = useState([{ text: '모든 시스템과 직통 연결되었습니다. 무엇을 검색할까요?', isBot: true, isSystem: false }])
+
+  // 🌟 오답노트 관련 상태 추가
+  const [isErrorNoteOpen, setIsErrorNoteOpen] = useState(false)
+  const [errorNoteForm, setErrorNoteForm] = useState({ author: '', question: '', answer: '', link: '' })
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const chatSessionRef = useRef<any>(null)
@@ -58,7 +60,8 @@ export default function App() {
         },
         {
           name: "search_jira",
-          description: "Jira에서 버그, 이슈, 티켓을 검색합니다.",
+          // 🌟 지시어 강화: 핵심 키워드 추출 & text ~ 문법 강제
+          description: "Jira에서 버그, 이슈, 티켓을 검색합니다. 사용자가 '비슷한 일감'을 찾을 경우 대화 문맥에서 핵심 명사 키워드(1~2개)만 추출하여 반드시 `text ~ \"키워드\"` 문법을 사용하세요. (예: `project in (\"GCPTAM\") AND text ~ \"푸시\"`)",
           parameters: { type: SchemaType.OBJECT, properties: { jql: { type: SchemaType.STRING, description: "Jira JQL 쿼리" } }, required: ["jql"] }
         },
         {
@@ -79,14 +82,11 @@ export default function App() {
         tools: [{ functionDeclarations: allTools as any }] 
       })
 
-      // 🌟 [핵심] 여러 개의 스페이스를 합쳐서 AI에게 강제 주입
       const validConfSpaces = newConfig.confSpaces.filter((s: string) => s.trim() !== '');
       const validJiraSpaces = newConfig.jiraSpaces.filter((s: string) => s.trim() !== '');
       
-      const confSpaceRule = validConfSpaces.length > 0 
-        ? `Confluence 검색 시 반드시 CQL에 \`space in ("${validConfSpaces.join('", "')}")\` 조건을 포함하세요.` : '';
-      const jiraSpaceRule = validJiraSpaces.length > 0 
-        ? `Jira 검색 시 반드시 JQL에 \`project in ("${validJiraSpaces.join('", "')}")\` 조건을 포함하세요.` : '';
+      const confSpaceRule = validConfSpaces.length > 0 ? `Confluence 검색 시 반드시 CQL에 \`space in ("${validConfSpaces.join('", "')}")\` 조건을 포함하세요.` : '';
+      const jiraSpaceRule = validJiraSpaces.length > 0 ? `Jira 검색 시 반드시 JQL에 \`project in ("${validJiraSpaces.join('", "')}")\` 조건을 포함하세요.` : '';
 
       chatSessionRef.current = model.startChat({
         history: [
@@ -96,6 +96,7 @@ export default function App() {
       })
       
       setIsConfiguring(false)
+      setIsErrorNoteOpen(false)
       setMessages(prev => [...prev, { text: `시스템 연동 완료! 지정된 스페이스 내에서 다중 검색 모드가 가동됩니다.`, isBot: true, isSystem: true }])
     } catch (err: any) {
       alert(`설정 실패: ${err.message}`)
@@ -123,16 +124,27 @@ export default function App() {
     setIsLoading(true)
 
     try {
-      let result = await chatSessionRef.current.sendMessage(userMsg)
+      const electron = (window as any).electron;
+      let finalMessageForAI = userMsg;
+
+      // 🌟 [핵심] 사용자 몰래 오답노트 DB 우선 검색! (가로채기)
+      if (electron?.ipcRenderer) {
+        const errorNoteRule = await electron.ipcRenderer.invoke('search-error-note', config, userMsg);
+        if (errorNoteRule) {
+          // 백엔드에서 만든 완벽한 프롬프트를 그대로 얹어주기만 하면 됩니다!
+          finalMessageForAI = `${errorNoteRule}\n\n사용자 질문: ${userMsg}`;
+          setMessages(prev => [...prev, { text: `💡 (관련된 오답노트를 발견하여 문맥을 분석합니다)`, isBot: true, isSystem: true }]);
+        }
+      }
+
+      let result = await chatSessionRef.current.sendMessage(finalMessageForAI)
       let functionCalls = result.response.functionCalls()
       
       while (functionCalls && functionCalls.length > 0) {
         setMessages(prev => [...prev, { text: `🔍 시스템 문서를 검색 중입니다... (${functionCalls!.length}건)`, isBot: true, isSystem: true }])
         
         const functionResponses = await Promise.all(functionCalls.map(async (call) => {
-          const electron = (window as any).electron
           let rawResult;
-          
           try {
             if (call.name === 'search_confluence') rawResult = await electron.ipcRenderer.invoke('search-confluence', config, call.args.cql);
             else if (call.name === 'search_jira') rawResult = await electron.ipcRenderer.invoke('search-jira', config, call.args.jql);
@@ -161,6 +173,29 @@ export default function App() {
     }
   }
 
+  // 🌟 오답노트 저장 버튼 클릭 시 (충돌 팝업 로직 추가)
+  const submitErrorNote = async () => {
+    if (!errorNoteForm.question || !errorNoteForm.answer) return alert('질문과 답변은 필수입니다!');
+    
+    setIsLoading(true);
+    const electron = (window as any).electron;
+    if (electron?.ipcRenderer) {
+      const res = await electron.ipcRenderer.invoke('write-error-note', config, errorNoteForm);
+      setIsLoading(false);
+
+      if (res.success) {
+        alert('오답노트가 Confluence 페이지 표에 성공적으로 추가되었습니다!');
+        setIsErrorNoteOpen(false); // 창 닫고 채팅으로 복귀
+        setErrorNoteForm({ author: '', question: '', answer: '', link: '' }); // 폼 초기화
+      } else if (res.isConflict) {
+        // 🌟 기획하신 다중 접속 충돌 방어 알림!
+        alert('다른 사람과 동시에 등록해서 충돌이 났습니다. 잠시 후에 다시 시도해주세요.');
+      } else {
+        alert(`등록 실패: ${res.error}`);
+      }
+    }
+  }
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }
 
   return (
@@ -171,6 +206,8 @@ export default function App() {
           isConfiguring={isConfiguring} setIsConfiguring={setIsConfiguring} saveConfigAndConnect={saveConfigAndConnect} 
           messages={messages} isLoading={isLoading} inputText={inputText} setInputText={setInputText} 
           handleSend={handleSend} handleKeyDown={handleKeyDown} messagesEndRef={messagesEndRef}
+          isErrorNoteOpen={isErrorNoteOpen} setIsErrorNoteOpen={setIsErrorNoteOpen}
+          errorNoteForm={errorNoteForm} setErrorNoteForm={setErrorNoteForm} submitErrorNote={submitErrorNote}
         />
       )}
       <div 

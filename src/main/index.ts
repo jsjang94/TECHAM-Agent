@@ -66,21 +66,55 @@ app.whenReady().then(() => {
     } catch (e: any) { return `Confluence 검색 실패: ${e.message}`; }
   });
 
-  // 2. Jira 검색 
+// 2. Jira 검색 (v3 API POST 방식 + 안전한 필드 파싱 🌟)
   ipcMain.handle('search-jira', async (_, config, jql) => {
     try {
       const auth = Buffer.from(`${config.confEmail}:${config.confToken}`).toString('base64');
-      const res = await fetch(`${config.confUrl}/rest/api/2/search?jql=${encodeURIComponent(jql)}&maxResults=3`, {
-        headers: { 'Authorization': `Basic ${auth}`, 'Accept': 'application/json' }
+      const baseUrl = config.confUrl.endsWith('/') ? config.confUrl.slice(0, -1) : config.confUrl;
+      
+      const res = await fetch(`${baseUrl}/rest/api/3/search/jql`, {
+        method: 'POST',
+        headers: { 
+          'Authorization': `Basic ${auth}`, 
+          'Accept': 'application/json',
+          'Content-Type': 'application/json' 
+        },
+        body: JSON.stringify({
+          jql: jql,
+          maxResults: 5,
+          // 🌟 방어 1: API에게 "제목, 상태, 본문" 필드만 콕 집어서 달라고 명시적으로 요청!
+          fields: ["summary", "status", "description"]
+        })
       });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        return `[시스템 규칙: 에러 원인을 읽어줄 것]\nJira API 통신 실패 (${res.status}).\n원인: ${errText.substring(0, 300)}`;
+      }
+
       const data = await res.json();
+      
+      if (data.errorMessages) return `JQL 문법 에러: ${data.errorMessages.join(', ')}`;
       if (!data.issues || data.issues.length === 0) return "검색된 Jira 이슈가 없습니다.";
       
       return data.issues.map((i: any) => {
-        const desc = i.fields.description || '내용 없음';
-        return `[티켓]: ${i.key}\n[제목]: ${i.fields.summary} (상태: ${i.fields.status?.name})\n[본문]: ${desc.substring(0, 1000)}...`;
-      }).join('\n\n');
-    } catch (e: any) { return `Jira 검색 실패: ${e.message}`; }
+        let desc = '내용 없음';
+        
+        // 🌟 방어 2: i.fields 자체가 아예 비어있을 경우를 대비한 완벽한 방어막(?.)
+        if (i.fields?.description) {
+          desc = typeof i.fields.description === 'string' 
+            ? i.fields.description 
+            : JSON.stringify(i.fields.description);
+        }
+
+        const summary = i.fields?.summary || '제목 없음';
+        const status = i.fields?.status?.name || '상태 알 수 없음';
+
+        return `[티켓]: ${i.key}\n[링크]: ${baseUrl}/browse/${i.key}\n[제목]: ${summary} (상태: ${status})\n[본문]: ${desc.substring(0, 800)}...`;
+      }).join('\n\n--------------------\n\n');
+    } catch (e: any) { 
+      return `[시스템 규칙: 에러 원인을 읽어줄 것]\nJira 내부 코드 에러: ${e.message}`; 
+    }
   });
 
   // 3. Zendesk 검색 (사내 비공개 티켓 + 팀원 답변까지 싹쓸이 🌟)
@@ -138,5 +172,124 @@ app.whenReady().then(() => {
       const html = await res.text();
       return `[출처: ${targetUrl}]\n${stripHtml(html).substring(0, 2000)}`;
     } catch (e: any) { return `Hive 문서 접근 실패: ${e.message}`; }
+  });
+
+  // 5. 오답노트(일반 페이지) 검색 (스마트 문맥 가로채기 🌟)
+  ipcMain.handle('search-error-note', async (_, config, userQuestion) => {
+    try {
+      const auth = Buffer.from(`${config.confEmail}:${config.confToken}`).toString('base64');
+      const baseUrl = config.confUrl.endsWith('/') ? config.confUrl.slice(0, -1) : config.confUrl;
+      const pageId = '285802836'; 
+
+      const res = await fetch(`${baseUrl}/wiki/rest/api/content/${pageId}?expand=body.storage`, {
+        headers: { 'Authorization': `Basic ${auth}`, 'Accept': 'application/json' }
+      });
+      const data = await res.json();
+      const html = data.body?.storage?.value || '';
+
+      const trRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+      let match;
+      const notes: any[] = [];
+
+      while ((match = trRegex.exec(html)) !== null) {
+        const rowHtml = match[1];
+        const tdRegex = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
+        const cells: string[] = [];
+        let tdMatch;
+        while ((tdMatch = tdRegex.exec(rowHtml)) !== null) {
+          cells.push(tdMatch[1].replace(/<[^>]*>?/gm, ' ').replace(/&nbsp;/g, ' ').trim());
+        }
+        if (cells.length >= 3 && cells[1] !== '질문') { 
+          notes.push({ author: cells[0], question: cells[1], answer: cells[2], link: cells[3] || '' });
+        }
+      }
+
+      // 🌟 3. 스마트 문맥 필터링: '느슨한 투망(OR 조건)' 던지기
+      const userText = userQuestion.toLowerCase();
+      // 특수문자 제거 및 단어 쪼개기
+      const userWords = userText.replace(/[^\w\s가-힣]/g, '').split(' ').filter(w => w.length > 0);
+
+      const candidateNotes = notes.filter(note => {
+        const qTarget = note.question.toLowerCase();
+        const qWords = qTarget.replace(/[^\w\s가-힣]/g, '').split(' ').filter(w => w.length > 0);
+        
+        if (qWords.length === 0) return false;
+
+        // 사용자의 단어가 노트 질문에 포함되거나, 노트 단어가 사용자 질문에 하나라도 포함되면 '후보'로 채택!
+        return userWords.some(uw => qTarget.includes(uw)) || 
+               qWords.some(qw => userText.includes(qw));
+      });
+
+      // 🌟 4. 건져올린 후보들을 AI에게 판단 맡기기
+      if (candidateNotes.length > 0) {
+         const ruleTexts = candidateNotes.map(n => 
+           `[사내 규칙 후보]\n- 등록조건: ${n.question}\n- 준수할 답변: ${n.answer}\n- 참고링크: ${n.link}`
+         ).join('\n\n');
+         
+         // AI 뇌에 꽂아버리는 아주 강력한 프롬프트 지시어
+         return `다음은 사용자의 질문과 키워드가 일부 겹쳐 검색된 '사내 규칙 후보'들입니다. 사용자의 질문 문맥을 파악하여, 이 후보들 중 의미가 일치하는 규칙이 있다면 그 답변 가이드를 무조건 최우선으로 적용하여 대답하세요. (관련이 없다면 무시하세요.)\n\n${ruleTexts}`;
+      }
+
+      return null;
+    } catch (e: any) { return null; }
+  });
+
+  // 6. 오답노트(일반 페이지) 쓰기 (테이블에 행 추가 및 충돌 방어 🌟)
+  ipcMain.handle('write-error-note', async (_, config, noteData) => {
+    try {
+      const auth = Buffer.from(`${config.confEmail}:${config.confToken}`).toString('base64');
+      const baseUrl = config.confUrl.endsWith('/') ? config.confUrl.slice(0, -1) : config.confUrl;
+      const pageId = '285802836'; 
+      const headers = { 'Authorization': `Basic ${auth}`, 'Accept': 'application/json', 'Content-Type': 'application/json' };
+
+      // 🌟 수정 1: URL 끝 expand에 'space'를 명시적으로 추가하여 스페이스 정보도 가져오기
+      const getRes = await fetch(`${baseUrl}/wiki/rest/api/content/${pageId}?expand=body.storage,version,space`, { headers });
+      if (!getRes.ok) throw new Error('페이지를 읽어오지 못했습니다.');
+      const pageData = await getRes.json();
+
+      const currentVersion = pageData.version.number;
+      let storageHtml = pageData.body.storage.value;
+
+      // 2단계: 추가할 새 행(Row) HTML 만들기
+      const linkHtml = noteData.link ? `<a href="${noteData.link}">${noteData.link}</a>` : '';
+      const formattedQ = noteData.question.replace(/\n/g, '<br/>');
+      const formattedA = noteData.answer.replace(/\n/g, '<br/>');
+      const newRow = `<tr><td>${noteData.author}</td><td>${formattedQ}</td><td>${formattedA}</td><td>${linkHtml}</td></tr>`;
+
+      // 3단계: 테이블 맨 아래(</tbody> 바로 앞)에 새 행 끼워 넣기
+      if (storageHtml.includes('</tbody>')) {
+        storageHtml = storageHtml.replace('</tbody>', `${newRow}</tbody>`);
+      } else if (storageHtml.includes('</table>')) {
+        storageHtml = storageHtml.replace('</table>', `${newRow}</table>`);
+      } else {
+        // 만약 문서가 비어있다면 표를 새로 그려줌
+        storageHtml += `<table><tbody><tr><th>등록자</th><th>질문</th><th>올바른 답변</th><th>참고 링크</th></tr>${newRow}</tbody></table>`;
+      }
+
+      // 4단계: 버전을 +1 해서 업데이트(PUT) 요청
+      const updateRes = await fetch(`${baseUrl}/wiki/rest/api/content/${pageId}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({
+          id: pageId,
+          type: 'page',
+          title: pageData.title,
+          // 🌟 수정 2: space 정보가 없더라도 알려주신 개인 스페이스 키(~jsjang)로 강제 지정하는 안전장치!
+          space: { key: pageData.space?.key || '~jsjang' }, 
+          body: { storage: { value: storageHtml, representation: 'storage' } },
+          version: { number: currentVersion + 1 }
+        })
+      });
+
+      // [충돌 방어 로직] 409 Conflict 에러 시
+      if (!updateRes.ok) {
+        if (updateRes.status === 409) return { success: false, isConflict: true };
+        throw new Error(await updateRes.text());
+      }
+
+      return { success: true };
+    } catch (e: any) { 
+      return { success: false, error: e.message }; 
+    }
   });
 })
