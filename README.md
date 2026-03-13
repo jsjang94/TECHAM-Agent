@@ -41,5 +41,5 @@ $ npm run build
 
 애플 서명(도장)을 완벽하게 무시하고, 강제로 Mac용(M1/M2/M3) dmg를 뽑아내는 명령어!
 ```bash
-npx electron-builder --mac --arm64 -c.mac.identity=null
+$ npx electron-builder --mac --arm64 -c.mac.identity=null
 ```
