@@ -1,54 +1,40 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { GoogleGenerativeAI } from '@google/generative-ai'
+import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai'
 import hiveAgentImg from './assets/hivebot.png'
 import ChatWindow from './components/ChatWindow'
+
+// 안전하게 배열 로컬스토리지 불러오기
+const safeParse = (key: string, defaultVal: string[]) => {
+  try { return JSON.parse(localStorage.getItem(key) || 'null') || defaultVal; } 
+  catch { return defaultVal; }
+}
 
 export default function App() {
   const [isChatOpen, setIsChatOpen] = useState(false)
   const [shouldRenderChat, setShouldRenderChat] = useState(false)
   
-  // 🌟 [수정됨] 스페이스 설정(confSpace) 추가 및 기본값 세팅
   const [config, setConfig] = useState({
     apiKey: localStorage.getItem('hive_api_key') || '',
     confUrl: localStorage.getItem('hive_conf_url') || 'https://com2us.atlassian.net',
     confEmail: localStorage.getItem('hive_conf_email') || '',
     confToken: localStorage.getItem('hive_conf_token') || '',
-    confSpace: localStorage.getItem('hive_conf_space') || 'GCPTAM'
+    // 🌟 단일 스페이스에서 다중 스페이스(배열)로 변경!
+    confSpaces: safeParse('hive_conf_spaces', ['GCPTAM']),
+    jiraSpaces: safeParse('hive_jira_spaces', ['GCPTAM']),
+    zendeskSubdomain: localStorage.getItem('hive_zendesk_subdomain') || '',
+    zendeskEmail: localStorage.getItem('hive_zendesk_email') || '',
+    zendeskToken: localStorage.getItem('hive_zendesk_token') || ''
   })
   
   const [isConfiguring, setIsConfiguring] = useState(!config.apiKey || !config.confUrl)
   const [inputText, setInputText] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [messages, setMessages] = useState([{ text: '시스템 가동. 어떤 정보를 검색할까요?', isBot: true, isSystem: false }])
+  const [messages, setMessages] = useState([{ text: '모든 시스템과 직통 연결되었습니다. 무엇을 검색할까요?', isBot: true, isSystem: false }])
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const chatSessionRef = useRef<any>(null)
-  const mcpToolsRef = useRef<any[]>([])
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
-
-  // 🌟 Gemini가 거부하는 JSON Schema 불순물을 싹 제거해주는 정수기 함수
-  const sanitizeGeminiSchema = (obj: any): any => {
-    if (typeof obj !== 'object' || obj === null) return obj;
-    if (Array.isArray(obj)) return obj.map(sanitizeGeminiSchema);
-    
-    const cleaned = { ...obj };
-    delete cleaned.$schema;
-    delete cleaned.additionalProperties;
-    delete cleaned.propertyNames;
-    delete cleaned.default;
-    
-    if (typeof cleaned.type === 'string') {
-      cleaned.type = cleaned.type.toUpperCase();
-    }
-    
-    for (const key in cleaned) {
-      if (typeof cleaned[key] === 'object') {
-        cleaned[key] = sanitizeGeminiSchema(cleaned[key]);
-      }
-    }
-    return cleaned;
-  };
 
   const saveConfigAndConnect = async (newConfig: any) => {
     setConfig(newConfig)
@@ -56,46 +42,63 @@ export default function App() {
     localStorage.setItem('hive_conf_url', newConfig.confUrl)
     localStorage.setItem('hive_conf_email', newConfig.confEmail)
     localStorage.setItem('hive_conf_token', newConfig.confToken)
-    localStorage.setItem('hive_conf_space', newConfig.confSpace) // 스페이스 저장
+    localStorage.setItem('hive_conf_spaces', JSON.stringify(newConfig.confSpaces))
+    localStorage.setItem('hive_jira_spaces', JSON.stringify(newConfig.jiraSpaces))
+    localStorage.setItem('hive_zendesk_subdomain', newConfig.zendeskSubdomain)
+    localStorage.setItem('hive_zendesk_email', newConfig.zendeskEmail)
+    localStorage.setItem('hive_zendesk_token', newConfig.zendeskToken)
     setIsLoading(true)
 
     try {
-      const electron = (window as any).electron
-      const response = await electron.ipcRenderer.invoke('connect-mcp', newConfig)
-      if (!response.success) throw new Error(response.error)
-      
-      const formattedTools = response.tools.map(t => {
-        let safeSchema = { type: "OBJECT", properties: {} };
-        if (t.inputSchema) {
-          safeSchema = sanitizeGeminiSchema(t.inputSchema);
-          if (!safeSchema.type) safeSchema.type = "OBJECT";
+      const allTools = [
+        {
+          name: "search_confluence",
+          description: "사내 Confluence 위키에서 문서를 검색합니다.",
+          parameters: { type: SchemaType.OBJECT, properties: { cql: { type: SchemaType.STRING, description: "Confluence CQL 쿼리" } }, required: ["cql"] }
+        },
+        {
+          name: "search_jira",
+          description: "Jira에서 버그, 이슈, 티켓을 검색합니다.",
+          parameters: { type: SchemaType.OBJECT, properties: { jql: { type: SchemaType.STRING, description: "Jira JQL 쿼리" } }, required: ["jql"] }
+        },
+        {
+          name: "search_zendesk",
+          description: "Zendesk에서 사내 비공개 고객 지원 티켓을 검색합니다.",
+          parameters: { type: SchemaType.OBJECT, properties: { query: { type: SchemaType.STRING, description: "검색할 키워드" } }, required: ["query"] }
+        },
+        {
+          name: "scrape_hive_docs",
+          description: "Hive Developers 사이트의 문서를 읽어옵니다.",
+          parameters: { type: SchemaType.OBJECT, properties: { urlPath: { type: SchemaType.STRING, description: "경로 (예: 'index.html')" } }, required: ["urlPath"] }
         }
-        return { name: t.name.replace(/-/g, '_'), description: t.description || "사내 시스템 검색 도구", parameters: safeSchema }
-      })
-      
-      mcpToolsRef.current = response.tools 
+      ];
+
       const genAI = new GoogleGenerativeAI(newConfig.apiKey)
       const model = genAI.getGenerativeModel({ 
         model: "gemini-3-pro-preview",
-        tools: formattedTools.length > 0 ? [{ functionDeclarations: formattedTools }] : undefined
+        tools: [{ functionDeclarations: allTools as any }] 
       })
 
-      // 🌟 [핵심] 특정 스페이스만 검색하도록 강력한 프롬프트 주입
-      const spacePrompt = newConfig.confSpace 
-        ? `\n\n[매우 중요] 너는 반드시 '${newConfig.confSpace}' 스페이스(Space) 내에서만 문서를 검색해야 해. 검색 도구(CQL 등)를 사용할 때 무조건 \`space = "${newConfig.confSpace}"\` 조건을 포함해서 검색해!` 
-        : '';
+      // 🌟 [핵심] 여러 개의 스페이스를 합쳐서 AI에게 강제 주입
+      const validConfSpaces = newConfig.confSpaces.filter((s: string) => s.trim() !== '');
+      const validJiraSpaces = newConfig.jiraSpaces.filter((s: string) => s.trim() !== '');
+      
+      const confSpaceRule = validConfSpaces.length > 0 
+        ? `Confluence 검색 시 반드시 CQL에 \`space in ("${validConfSpaces.join('", "')}")\` 조건을 포함하세요.` : '';
+      const jiraSpaceRule = validJiraSpaces.length > 0 
+        ? `Jira 검색 시 반드시 JQL에 \`project in ("${validJiraSpaces.join('", "')}")\` 조건을 포함하세요.` : '';
 
       chatSessionRef.current = model.startChat({
         history: [
-          { role: "user", parts: [{ text: `너는 사내 Confluence 위키를 검색해주는 Hive Agent야. 사용자가 질문하면 반드시 제공된 검색 도구를 활용해서 문서 내용을 바탕으로 대답해줘.${spacePrompt}` }] },
-          { role: "model", parts: [{ text: "네, 명심하겠습니다. 지정된 스페이스 내에서만 문서를 검색하고 정확하게 답변하겠습니다." }] }
+          { role: "user", parts: [{ text: `너는 사내 시스템을 통합 검색하는 Hive Agent야. 사용자가 질문하면 알맞은 도구(Confluence, Jira, Zendesk, Hive)를 선택해줘.\n\n[검색 필수 규칙]\n${confSpaceRule}\n${jiraSpaceRule}` }] },
+          { role: "model", parts: [{ text: "네, 시스템 연동을 완료했습니다. 지정해주신 여러 스페이스(프로젝트) 내에서만 정확하게 통합 검색을 수행하겠습니다." }] }
         ]
       })
       
       setIsConfiguring(false)
-      setMessages(prev => [...prev, { text: `Confluence 시스템 연동 완료. [${newConfig.confSpace}] 스페이스에서 무엇을 찾아드릴까요?`, isBot: true, isSystem: true }])
+      setMessages(prev => [...prev, { text: `시스템 연동 완료! 지정된 스페이스 내에서 다중 검색 모드가 가동됩니다.`, isBot: true, isSystem: true }])
     } catch (err: any) {
-      alert(`연결 실패: ${err.message}`)
+      alert(`설정 실패: ${err.message}`)
     } finally {
       setIsLoading(false)
     }
@@ -127,12 +130,19 @@ export default function App() {
         setMessages(prev => [...prev, { text: `🔍 시스템 문서를 검색 중입니다... (${functionCalls!.length}건)`, isBot: true, isSystem: true }])
         
         const functionResponses = await Promise.all(functionCalls.map(async (call) => {
-          const originalToolName = mcpToolsRef.current.find(t => t.name.replace(/-/g, '_') === call.name)?.name || call.name
           const electron = (window as any).electron
+          let rawResult;
           
           try {
-            const mcpResult = await electron.ipcRenderer.invoke('call-mcp', originalToolName, call.args)
-            return { functionResponse: { name: call.name, response: { content: mcpResult } } }
+            if (call.name === 'search_confluence') rawResult = await electron.ipcRenderer.invoke('search-confluence', config, call.args.cql);
+            else if (call.name === 'search_jira') rawResult = await electron.ipcRenderer.invoke('search-jira', config, call.args.jql);
+            else if (call.name === 'search_zendesk') rawResult = await electron.ipcRenderer.invoke('search-zendesk', config, call.args.query);
+            else if (call.name === 'scrape_hive_docs') rawResult = await electron.ipcRenderer.invoke('scrape-hive-docs', call.args.urlPath);
+            
+            let stringifiedResult = typeof rawResult === 'string' ? rawResult : JSON.stringify(rawResult);
+            if (stringifiedResult.length > 3000) stringifiedResult = stringifiedResult.substring(0, 3000) + "\n...[생략됨]...";
+
+            return { functionResponse: { name: call.name, response: { content: stringifiedResult } } }
           } catch (e: any) {
             return { functionResponse: { name: call.name, response: { error: e.message } } }
           }
@@ -151,9 +161,7 @@ export default function App() {
     }
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
-  }
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }
 
   return (
     <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', paddingBottom: '20px' }}>

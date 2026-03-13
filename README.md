@@ -1,4 +1,4 @@
-hive agent 데스크톱 앱 개발
+## hive agent 데스크톱 앱 개발
 
 An Electron application with React and TypeScript
 
@@ -32,4 +32,10 @@ $ npm run build:mac
 # For Linux
 $ npm run build:linux
 ```
->>>>>>> e3951c5 (Initial commit)
+
+## 빌드 방법
+# 코드 번역(Vite)을 먼저 한번 해주고
+npm run build
+
+# 애플 서명(도장)을 완벽하게 무시하고, 강제로 Mac용(M1/M2/M3) dmg를 뽑아내는 명령어!
+npx electron-builder --mac --arm64 -c.mac.identity=null

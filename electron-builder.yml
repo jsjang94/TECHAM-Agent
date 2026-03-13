@@ -1,5 +1,5 @@
 appId: com.electron.app
-productName: hive-agent
+productName: Hive Agent
 directories:
   buildResources: build
 files:
@@ -19,6 +19,8 @@ nsis:
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
 mac:
+  target:
+    - dmg
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     - NSCameraUsageDescription: Application requests access to the device's camera.
