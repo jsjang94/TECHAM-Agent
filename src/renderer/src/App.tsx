@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import hiveAgentImg from './assets/hivebot.png'
+import techamAgentImg from './assets/techamAgentImg.png'
 import ChatWindow from './components/ChatWindow'
 
 const safeParse = (key: string, defaultVal: string[]) => {
@@ -171,7 +171,7 @@ export default function App() {
         onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.05) translateY(-5px)'}
         onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1) translateY(0)'}
       >
-        <img src={hiveAgentImg} alt="Hive Agent" style={{ width: '100%', height: '100%', objectFit: 'contain', filter: 'drop-shadow(0 10px 15px rgba(0,0,0,0.3))' }} />
+        <img src={techamAgentImg} alt="TECHAM Agent" style={{ width: '100%', height: '100%', objectFit: 'contain', filter: 'drop-shadow(0 10px 15px rgba(0,0,0,0.3))' }} />
       </div>
     </div>
   )

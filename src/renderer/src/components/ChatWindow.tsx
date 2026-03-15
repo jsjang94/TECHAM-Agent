@@ -58,7 +58,7 @@ export default function ChatWindow({
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
               <div style={{ width: '32px', height: '32px', backgroundColor: '#4a4a4a', borderRadius: '50%', marginRight: '10px', display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '16px' }}>🤖</div>
               <div>
-                <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#fff' }}>Hive Agent</div>
+                <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#fff' }}>TECHAM Agent</div>
                 <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)' }}>통합 시스템 검색</div>
               </div>
             </div>
@@ -72,7 +72,7 @@ export default function ChatWindow({
           <button 
             onClick={() => { setIsErrorNoteOpen(!isErrorNoteOpen); setIsConfiguring(false); }} 
             style={{ width: '100%', textAlign: 'left', background: isErrorNoteOpen ? 'rgba(0,243,255,0.1)' : 'transparent', border: 'none', color: isErrorNoteOpen ? '#00f3ff' : 'rgba(255,255,255,0.7)', padding: '10px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            📝 사내 오답노트 (규칙)
+            📝 오답노트
           </button>
         </div>
         <button onClick={() => { setIsConfiguring(true); setIsErrorNoteOpen(false); }} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', textAlign: 'left', fontSize: '12px', padding: '8px' }}>⚙️ 시스템 연동 설정</button>
@@ -157,7 +157,7 @@ export default function ChatWindow({
         ) : isErrorNoteOpen ? (
           /* 🌟 오답노트 작성 화면 */
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '40px', overflowY: 'auto' }}>
-            <h3 style={{ color: '#fff', marginBottom: '8px' }}>📝 사내 오답노트 등록</h3>
+            <h3 style={{ color: '#fff', marginBottom: '8px' }}>📝 오답노트 등록</h3>
             <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '12px', marginBottom: '24px' }}>AI가 헛소리한 내용을 교정하여 Confluence DB에 기록합니다.</p>
             
             <p style={{ color: '#00f3ff', fontSize: '12px', marginBottom: '4px' }}>1. 등록자</p>

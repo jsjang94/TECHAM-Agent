@@ -1,5 +1,5 @@
 appId: com.electron.app
-productName: Hive Agent
+productName: TECHAM Agent
 directories:
   buildResources: build
 files:
@@ -12,7 +12,7 @@ files:
 asarUnpack:
   - resources/**
 win:
-  executableName: hive-agent
+  executableName: techam-agent
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
