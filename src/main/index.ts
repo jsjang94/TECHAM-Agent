@@ -1,3 +1,4 @@
+// src/main/index.ts
 import { app, BrowserWindow, screen, ipcMain } from 'electron'
 import { join } from 'path'
 import { optimizer, is } from '@electron-toolkit/utils'
@@ -6,12 +7,20 @@ import { processUserMessage } from './agents/managerAgent'
 function createWindow(): void {
   const primaryDisplay = screen.getPrimaryDisplay()
   const { width, height } = primaryDisplay.workAreaSize
-  const initialSize = 250
+  const initialSize = 250 
 
   const mainWindow = new BrowserWindow({
     width: initialSize, height: initialSize,
     x: Math.floor((width - initialSize) / 2), y: Math.floor(height - initialSize),
-    transparent: true, frame: false, resizable: false, alwaysOnTop: true, hasShadow: false,
+    
+    // 🌟 바탕화면이 보이도록 창 자체를 완전히 투명하게 뚫어줍니다!
+    transparent: true, 
+    frame: false, 
+    resizable: false, 
+    alwaysOnTop: true, 
+    hasShadow: false, // 투명 창의 경우 기본 그림자를 끕니다
+    // backgroundColor: '#1c1c1e' <- ❌ 창 전체를 까맣게 만들던 이 줄을 완전히 삭제했습니다!
+    
     webPreferences: { preload: join(__dirname, '../preload/index.js'), sandbox: false }
   })
 
@@ -23,12 +32,21 @@ function createWindow(): void {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
-  ipcMain.on('resize-window', (event, targetWidth, targetHeight) => {
+  // 창 리사이징 IPC 로직 (채팅창 열릴 때 크기 조절)
+  ipcMain.on('resize-window', (event, targetWidth, targetHeight, isResizable) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return
+    const primaryDisplay = screen.getPrimaryDisplay()
+    const { width, height } = primaryDisplay.workAreaSize
+
     const x = Math.floor((width - targetWidth) / 2)
+    
+    // 🌟 핵심: 채팅창이 열리든 말든, 창의 시작점(y)을 무조건 화면 맨 아래(bottom)에 고정시킵니다!
+    // 이렇게 하면 창이 위로만 쑥 늘어나고 로봇은 제자리에 가만히 있게 됩니다.
     const y = Math.floor(height - targetHeight)
-    win.setBounds({ x, y, width: targetWidth, height: targetHeight })
+
+    win.setResizable(isResizable)
+    win.setBounds({ x, y, width: targetWidth, height: targetHeight }, true)
   })
 }
 
@@ -36,7 +54,7 @@ app.whenReady().then(() => {
   app.on('browser-window-created', (_, window) => { optimizer.watchWindowShortcuts(window) })
   createWindow()
 
-  // 🌟 1. 대망의 멀티 에이전트 통신 파이프라인
+  // 🌟 [기존 코드 유지] 멀티 에이전트 통신 파이프라인
   ipcMain.handle('chat-with-agent', async (_, config, userMessage, chatHistory) => {
     try {
       const reply = await processUserMessage(userMessage, chatHistory, config);
@@ -46,7 +64,7 @@ app.whenReady().then(() => {
     }
   });
 
-  // 🌟 2. 오답노트 검색 (프론트엔드에서 챗봇 찌르기 전에 확인하는 용도)
+  // 🌟 [기존 코드 유지] 오답노트 검색
   ipcMain.handle('search-error-note', async (_, config, userQuestion) => {
     try {
       const auth = Buffer.from(`${config.confEmail}:${config.confToken}`).toString('base64');
@@ -96,7 +114,7 @@ app.whenReady().then(() => {
     } catch (e: any) { return null; }
   });
 
-  // 🌟 3. 오답노트 등록 (충돌 방지 및 space.key 안전장치 포함)
+  // 🌟 [기존 코드 유지] 오답노트 등록
   ipcMain.handle('write-error-note', async (_, config, noteData) => {
     try {
       const auth = Buffer.from(`${config.confEmail}:${config.confToken}`).toString('base64');

@@ -7,19 +7,19 @@ html, body, #root {
   overflow: hidden;
 }
 
-/* 1. 전체 컨테이너는 마우스 클릭을 통과시킵니다 (빈 공간 클릭 방해 방지) */
+/* 1. 전체 컨테이너는 마우스 클릭을 통과시킵니다 */
 .main-container {
   width: 100%;
   height: 100%;
   display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
+  justify-content: center; /* 🌟 하단 쏠림 방지: 완벽한 정중앙 정렬 */
   align-items: center;
-  padding-bottom: 10px;
-  pointer-events: none; /* 핵심: 빈 공간은 클릭 무시 */
+  padding: 0; /* 🌟 화면 밀림의 주범이던 padding 제거! */
+  pointer-events: none;
+  position: relative; /* 🌟 로봇과 채팅창을 겹치게 하기 위한 설정 */
 }
 
 /* 2. 실제 UI 요소들만 마우스 클릭을 인식하게 합니다 */
 .interactable {
-  pointer-events: auto; /* 캐릭터와 채팅창은 클릭 가능하게 */
+  pointer-events: auto;
 }

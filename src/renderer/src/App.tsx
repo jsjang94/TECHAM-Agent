@@ -1,6 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react'
+// src/App.tsx
+import React, { useState, useEffect } from 'react'
 import techamAgentImg from './assets/techamAgentImg.png'
 import ChatWindow from './components/ChatWindow'
+import './assets/main.css'
 
 const safeParse = (key: string, defaultVal: string[]) => {
   try { return JSON.parse(localStorage.getItem(key) || 'null') || defaultVal; } 
@@ -9,8 +11,6 @@ const safeParse = (key: string, defaultVal: string[]) => {
 
 export default function App() {
   const [isChatOpen, setIsChatOpen] = useState(false)
-  const [shouldRenderChat, setShouldRenderChat] = useState(false)
-  
   const [config, setConfig] = useState({
     apiKey: localStorage.getItem('hive_api_key') || '',
     confUrl: localStorage.getItem('hive_conf_url') || 'https://com2us.atlassian.net',
@@ -27,16 +27,17 @@ export default function App() {
   const [inputText, setInputText] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [messages, setMessages] = useState([{ text: '모든 시스템과 직통 연결되었습니다. 무엇을 검색할까요?', isBot: true, isSystem: false }])
-
-  // 🌟 오답노트 관련 상태 유지
   const [isErrorNoteOpen, setIsErrorNoteOpen] = useState(false)
   const [errorNoteForm, setErrorNoteForm] = useState({ author: '', question: '', answer: '', link: '' })
 
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const chatArea = document.getElementById('chat-scroll-area');
+    if (chatArea) {
+      // 부모 창 전체를 건드리지 않고, 딱 '채팅 내역 영역' 내부의 스크롤만 부드럽게 내립니다.
+      chatArea.scrollTo({ top: chatArea.scrollHeight, behavior: 'smooth' });
+    }
+  }, [messages])
 
-  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
-
-  // 🌟 프론트엔드 제미나이 초기화 로직 싹 걷어냄! (백엔드가 알아서 함)
   const saveConfigAndConnect = async (newConfig: any) => {
     setConfig(newConfig)
     localStorage.setItem('hive_api_key', newConfig.apiKey)
@@ -54,26 +55,25 @@ export default function App() {
       setIsConfiguring(false)
       setIsErrorNoteOpen(false)
       setMessages(prev => [...prev, { text: `시스템 연동 완료! 지정된 스페이스 내에서 다중 검색 모드가 가동됩니다. (백엔드 에이전트 연결됨)`, isBot: true, isSystem: true }])
-    } catch (err: any) {
-      alert(`설정 실패: ${err.message}`)
-    } finally {
-      setIsLoading(false)
-    }
+    } catch (err: any) { alert(`설정 실패: ${err.message}`) } 
+    finally { setIsLoading(false) }
   }
 
-  // 🌟 질문자님의 천재적인 Electron 창 사이즈 조절 로직 완벽 복구
   const toggleChat = (open: boolean) => {
     const electron = (window as any).electron
-    if (open) {
-      if (electron?.ipcRenderer) electron.ipcRenderer.send('resize-window', 750, 750)
-      setTimeout(() => { setShouldRenderChat(true); setTimeout(() => setIsChatOpen(true), 10) }, 50)
-    } else {
-      setIsChatOpen(false)
-      setTimeout(() => { setShouldRenderChat(false); if (electron?.ipcRenderer) electron.ipcRenderer.send('resize-window', 250, 250) }, 300)
+    setIsChatOpen(open);
+    if (electron?.ipcRenderer) {
+      if (open) {
+        const chatHeight = Math.floor(window.screen.availHeight * 0.70);
+        const targetWidth = Math.floor(window.screen.availWidth * 0.60); 
+        const targetHeight = chatHeight + 250; 
+        electron.ipcRenderer.send('resize-window', targetWidth, targetHeight, true);
+      } else {
+        electron.ipcRenderer.send('resize-window', 250, 250, false);
+      }
     }
   }
 
-  // 🌟 멀티 에이전트 지휘관(Manager)에게 통신하는 새 두뇌!
   const handleSend = async () => {
     if (!inputText.trim() || !config.apiKey) return
     const userMsg = inputText
@@ -85,7 +85,6 @@ export default function App() {
       const electron = (window as any).electron;
       let finalMessageForAI = userMsg;
 
-      // [핵심] 오답노트 DB 우선 검색 (가로채기)
       if (electron?.ipcRenderer) {
         const errorNoteRule = await electron.ipcRenderer.invoke('search-error-note', config, userMsg);
         if (errorNoteRule) {
@@ -93,86 +92,71 @@ export default function App() {
           setMessages(prev => [...prev, { text: `💡 (관련된 오답노트를 발견하여 문맥을 분석합니다)`, isBot: true, isSystem: true }]);
         }
 
-       // [핵심] 순수 대화 기록 추출 (시스템 메시지 및 첫 인사말 제외)
         let pureHistory = messages
           .filter(m => !m.isSystem && m.text !== '모든 시스템과 직통 연결되었습니다. 무엇을 검색할까요?')
-          .map(m => ({
-            role: m.isBot ? "model" : "user",
-            parts: [{ text: m.text }]
-          }));
+          .map(m => ({ role: m.isBot ? "model" : "user", parts: [{ text: m.text }] }));
 
-        // 🌟 제미나이 방어 코드: 만약 그래도 맨 앞이 'model'이라면 강제로 하나 빼버립니다!
-        if (pureHistory.length > 0 && pureHistory[0].role === 'model') {
-          pureHistory.shift();
-        }
+        if (pureHistory.length > 0 && pureHistory[0].role === 'model') pureHistory.shift();
 
-        // [핵심] 백엔드의 지휘관 에이전트 호출!
         const response = await electron.ipcRenderer.invoke('chat-with-agent', config, finalMessageForAI, pureHistory);
-        
-        if (response.success) {
-          setMessages(prev => [...prev, { text: response.text, isBot: true, isSystem: false }]);
-        } else {
-          setMessages(prev => [...prev, { text: `❌ 시스템 에러: ${response.error}`, isBot: true, isSystem: true }]);
-        }
+        if (response.success) setMessages(prev => [...prev, { text: response.text, isBot: true, isSystem: false }]);
+        else setMessages(prev => [...prev, { text: `❌ 시스템 에러: ${response.error}`, isBot: true, isSystem: true }]);
       }
-    } catch (error: any) {
-      setMessages(prev => [...prev, { text: `[통신 오류] ${error.message}`, isBot: true, isSystem: true }])
-    } finally {
-      setIsLoading(false)
-    }
+    } catch (error: any) { setMessages(prev => [...prev, { text: `[통신 오류] ${error.message}`, isBot: true, isSystem: true }]) } 
+    finally { setIsLoading(false) }
   }
 
-  // 🌟 오답노트 저장 버튼 클릭 시
   const submitErrorNote = async () => {
     if (!errorNoteForm.question || !errorNoteForm.answer) return alert('질문과 답변은 필수입니다!');
-    
     setIsLoading(true);
     const electron = (window as any).electron;
     if (electron?.ipcRenderer) {
       const res = await electron.ipcRenderer.invoke('write-error-note', config, errorNoteForm);
       setIsLoading(false);
-
       if (res.success) {
-        alert('오답노트가 Confluence 페이지 표에 성공적으로 추가되었습니다!');
-        setIsErrorNoteOpen(false); // 창 닫고 채팅으로 복귀
-        setErrorNoteForm({ author: '', question: '', answer: '', link: '' }); // 폼 초기화
-      } else if (res.isConflict) {
-        alert('다른 사람과 동시에 등록해서 충돌이 났습니다. 잠시 후에 다시 시도해주세요.');
-      } else {
-        alert(`등록 실패: ${res.error}`);
-      }
+        alert('오답노트가 성공적으로 추가되었습니다!');
+        setIsErrorNoteOpen(false); 
+        setErrorNoteForm({ author: '', question: '', answer: '', link: '' }); 
+      } else if (res.isConflict) alert('충돌이 발생했습니다. 다시 시도해주세요.');
+      else alert(`등록 실패: ${res.error}`);
     }
   }
 
-  // 한글 입력기 중복(isComposing) 방어 추가
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => { 
-    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { 
-      e.preventDefault(); 
-      handleSend(); 
-    } 
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); handleSend(); } 
   }
 
-  // 🌟 질문자님의 완벽한 원본 레이아웃!
   return (
-    <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', paddingBottom: '20px' }}>
-      {shouldRenderChat && (
-        <ChatWindow 
-          isChatOpen={isChatOpen} toggleChat={toggleChat} config={config} 
-          isConfiguring={isConfiguring} setIsConfiguring={setIsConfiguring} saveConfigAndConnect={saveConfigAndConnect} 
-          messages={messages as any} isLoading={isLoading} inputText={inputText} setInputText={setInputText} 
-          handleSend={handleSend} handleKeyDown={handleKeyDown} messagesEndRef={messagesEndRef}
-          isErrorNoteOpen={isErrorNoteOpen} setIsErrorNoteOpen={setIsErrorNoteOpen}
-          errorNoteForm={errorNoteForm} setErrorNoteForm={setErrorNoteForm} submitErrorNote={submitErrorNote}
-        />
+    <div className="main-container" style={{ width: '100vw', height: '100vh', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', backgroundColor: 'transparent' }}>
+      
+      {isChatOpen && (
+        <div className="interactable" style={{ width: '100%', flex: 1, display: 'flex', paddingBottom: '0px', marginBottom: '-30px', position:'relative', zIndex: 10, minHeight: 0, overflow: 'hidden' }}>
+          {/* 🌟 messagesEndRef 속성을 지웠습니다 */}
+          <ChatWindow 
+            isChatOpen={isChatOpen} toggleChat={toggleChat} config={config} 
+            isConfiguring={isConfiguring} setIsConfiguring={setIsConfiguring} saveConfigAndConnect={saveConfigAndConnect} 
+            messages={messages as any} isLoading={isLoading} inputText={inputText} setInputText={setInputText} 
+            handleSend={handleSend} handleKeyDown={handleKeyDown} 
+            isErrorNoteOpen={isErrorNoteOpen} setIsErrorNoteOpen={setIsErrorNoteOpen}
+            errorNoteForm={errorNoteForm} setErrorNoteForm={setErrorNoteForm} submitErrorNote={submitErrorNote}
+          />
+        </div>
       )}
+
       <div 
-        onClick={() => toggleChat(!isChatOpen)}
-        style={{ width: '250px', height: '250px', cursor: 'pointer', transition: 'transform 0.2s', zIndex: 10 }}
-        onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.05) translateY(-5px)'}
-        onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1) translateY(0)'}
+        className="interactable"
+        onClick={() => !isChatOpen && toggleChat(true)}
+        style={{
+          width: '250px', height: '250px', flexShrink: 0, marginBottom: '-35px',
+          display: 'flex', justifyContent: 'center', alignItems: 'center',
+          cursor: isChatOpen ? 'default' : 'pointer', transition: 'transform 0.2s ease',
+        }}
+        onMouseEnter={(e) => !isChatOpen && (e.currentTarget.style.transform = 'scale(1.05)')}
+        onMouseLeave={(e) => !isChatOpen && (e.currentTarget.style.transform = 'scale(1)')}
       >
-        <img src={techamAgentImg} alt="TECHAM Agent" style={{ width: '100%', height: '100%', objectFit: 'contain', filter: 'drop-shadow(0 10px 15px rgba(0,0,0,0.3))' }} />
+        <img src={techamAgentImg} alt="TECHAM Agent" style={{ width: '100%', height: '100%', objectFit: 'contain', filter: 'drop-shadow(0 10px 15px rgba(0,0,0,0.5))' }} />
       </div>
+      
     </div>
   )
 }
