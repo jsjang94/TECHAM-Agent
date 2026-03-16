@@ -39,7 +39,7 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
 
   try {
     if (name === 'search_jira') {
-      const res = await fetch(`${baseUrl}/rest/api/3/search`, {
+      const res = await fetch(`${baseUrl}/rest/api/3/search/jql`, {
         method: 'POST',
         headers: { 'Authorization': `Basic ${auth}`, 'Accept': 'application/json', 'Content-Type': 'application/json' },
         body: JSON.stringify({ jql: args.jql, maxResults: 5, fields: ["summary", "status", "description"] })
