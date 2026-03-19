@@ -124,7 +124,7 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
         headers: { 'Authorization': `Basic ${auth}`, 'Accept': 'application/json', 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           jql: safeJql, 
-          // 🌟 다이어트 1: "6100201" 처럼 고유 키워드를 쓴다면 상위 5개면 충분히 힌트를 찾습니다. (15 -> 5)
+          // 🌟 다이어트 1: "6100201" 처럼 고유 키워드를 쓴다면 상위 8개면 충분히 힌트를 찾습니다. (15 -> 8)
           maxResults: 8, 
           fields: ["summary", "status", "description", "comment"] 
         })
@@ -145,7 +145,7 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
           
         let commentsText = '';
         if (i.fields?.comment?.comments && i.fields.comment.comments.length > 0) {
-            // 댓글도 최신 2개 정도의 순수 텍스트만 가져옵니다.
+            // 댓글도 최신 3개 정도의 순수 텍스트만 가져옵니다.
             const latestComments = i.fields.comment.comments.slice(-3);
             commentsText = latestComments.map((c: any) => {
                 const cleanComment = extractTextFromJira(c.body);
