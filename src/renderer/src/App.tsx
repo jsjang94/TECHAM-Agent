@@ -1,6 +1,8 @@
 // src/App.tsx
 import React, { useState, useEffect } from 'react'
 import techamAgentImg from './assets/techamAgentImg.png'
+// import techamAgentImg from './assets/techamAgentImg2.png'
+// import techamAgentImg from './assets/testgif.gif'
 import ChatWindow from './components/ChatWindow'
 import './assets/main.css'
 
@@ -130,7 +132,7 @@ export default function App() {
     <div className="main-container" style={{ width: '100vw', height: '100vh', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', backgroundColor: 'transparent' }}>
       
       {isChatOpen && (
-        <div className="interactable" style={{ width: '100%', flex: 1, display: 'flex', paddingBottom: '0px', marginBottom: '-30px', position:'relative', zIndex: 10, minHeight: 0, overflow: 'hidden' }}>
+        <div className="interactable" style={{ width: '100%', flex: 1, display: 'flex', paddingBottom: '0px', marginBottom: '40px', position:'relative', zIndex: 10, minHeight: 0, overflow: 'hidden' }}>
           {/* 🌟 messagesEndRef 속성을 지웠습니다 */}
           <ChatWindow 
             isChatOpen={isChatOpen} toggleChat={toggleChat} config={config} 
@@ -147,7 +149,7 @@ export default function App() {
         className="interactable"
         onClick={() => !isChatOpen && toggleChat(true)}
         style={{
-          width: '250px', height: '250px', flexShrink: 0, marginBottom: '-35px',
+          width: '150px', height: '150px', flexShrink: 0, marginBottom: '10px',
           display: 'flex', justifyContent: 'center', alignItems: 'center',
           cursor: isChatOpen ? 'default' : 'pointer', transition: 'transform 0.2s ease',
         }}
