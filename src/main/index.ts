@@ -4,6 +4,8 @@ import { join } from 'path'
 import { optimizer, is } from '@electron-toolkit/utils'
 import { processUserMessage } from './agents/managerAgent'
 
+const PROXY_BASE_URL = 'https://techam-proxy.vercel.app';
+
 function createWindow(): void {
   const primaryDisplay = screen.getPrimaryDisplay()
   const { width, height } = primaryDisplay.workAreaSize
@@ -67,12 +69,9 @@ app.whenReady().then(() => {
   // 🌟 [기존 코드 유지] 오답노트 검색
   ipcMain.handle('search-error-note', async (_, config, userQuestion) => {
     try {
-      const auth = Buffer.from(`${config.confEmail}:${config.confToken}`).toString('base64');
-      const baseUrl = config.confUrl.endsWith('/') ? config.confUrl.slice(0, -1) : config.confUrl;
-      const pageId = '285802836'; 
-
-      const res = await fetch(`${baseUrl}/wiki/rest/api/content/${pageId}?expand=body.storage`, {
-        headers: { 'Authorization': `Basic ${auth}`, 'Accept': 'application/json' }
+      const res = await fetch(`${PROXY_BASE_URL}/api/proxy`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userEmail: config.userEmail, target: 'atlassian', method: 'GET', endpoint: '/wiki/rest/api/content/285802836?expand=body.storage' })
       });
       const data = await res.json();
       const html = data.body?.storage?.value || '';
@@ -117,17 +116,17 @@ app.whenReady().then(() => {
   // 🌟 [기존 코드 유지] 오답노트 등록
   ipcMain.handle('write-error-note', async (_, config, noteData) => {
     try {
-      const auth = Buffer.from(`${config.confEmail}:${config.confToken}`).toString('base64');
-      const baseUrl = config.confUrl.endsWith('/') ? config.confUrl.slice(0, -1) : config.confUrl;
       const pageId = '285802836'; 
-      const headers = { 'Authorization': `Basic ${auth}`, 'Accept': 'application/json', 'Content-Type': 'application/json' };
-
-      const getRes = await fetch(`${baseUrl}/wiki/rest/api/content/${pageId}?expand=body.storage,version,space`, { headers });
+      // 1. GET 
+      const getRes = await fetch(`${PROXY_BASE_URL}/api/proxy`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userEmail: config.userEmail, target: 'atlassian', method: 'GET', endpoint: `/wiki/rest/api/content/${pageId}?expand=body.storage,version,space` })
+      });
       if (!getRes.ok) throw new Error('페이지를 읽어오지 못했습니다.');
       const pageData = await getRes.json();
 
-      const currentVersion = pageData.version.number;
       let storageHtml = pageData.body.storage.value;
+      const currentVersion = pageData.version.number;
 
       const linkHtml = noteData.link ? `<a href="${noteData.link}">${noteData.link}</a>` : '';
       const formattedQ = noteData.question.replace(/\n/g, '<br/>');
@@ -142,16 +141,16 @@ app.whenReady().then(() => {
         storageHtml += `<table><tbody><tr><th>등록자</th><th>질문</th><th>올바른 답변</th><th>참고 링크</th></tr>${newRow}</tbody></table>`;
       }
 
-      const updateRes = await fetch(`${baseUrl}/wiki/rest/api/content/${pageId}`, {
-        method: 'PUT',
-        headers,
+      const updateRes = await fetch(`${PROXY_BASE_URL}/api/proxy`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          id: pageId,
-          type: 'page',
-          title: pageData.title,
-          space: { key: pageData.space?.key || '~jsjang' }, 
-          body: { storage: { value: storageHtml, representation: 'storage' } },
-          version: { number: currentVersion + 1 }
+          userEmail: config.userEmail, target: 'atlassian', method: 'PUT', endpoint: `/wiki/rest/api/content/${pageId}`,
+          body: {
+            id: pageId, type: 'page', title: pageData.title,
+            space: { key: pageData.space?.key || '~jsjang' }, 
+            body: { storage: { value: storageHtml, representation: 'storage' } },
+            version: { number: currentVersion + 1 }
+          }
         })
       });
 

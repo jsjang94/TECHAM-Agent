@@ -100,130 +100,95 @@ export const workerToolDeclarations: FunctionDeclaration[] = [
   }
 ];
 
+const PROXY_BASE_URL = 'https://techam-proxy.vercel.app';
+
 // 🌟 도구 실행기 (API 통신 전담)
 export async function executeMcpTool(name: string, args: any, config: any): Promise<string> {
-  const auth = Buffer.from(`${config.confEmail}:${config.confToken}`).toString('base64');
-  const baseUrl = config.confUrl.endsWith('/') ? config.confUrl.slice(0, -1) : config.confUrl;
-
   try {
     if (name === 'search_jira') {
-      const projects = config.jiraSpaces && config.jiraSpaces.length > 0
-        ? `project in (${config.jiraSpaces.join(', ')}) AND `
-        : '';
-
+      const projects = config.jiraSpaces?.length > 0 ? `project in (${config.jiraSpaces.join(', ')}) AND ` : '';
       if (!args.keywords || args.keywords.length === 0) return "검색 키워드가 없습니다.";
-
-      const keywordQueries = args.keywords
-        .map((k: string) => `text ~ "${k.replace(/"/g, '')}"`)
-        .join(' AND ');
-
+      const keywordQueries = args.keywords.map((k: string) => `text ~ "${k.replace(/"/g, '')}"`).join(' AND ');
       const safeJql = `${projects}(${keywordQueries}) ORDER BY created DESC`;
 
-      const res = await fetch(`${baseUrl}/rest/api/3/search/jql`, {
+      const res = await fetch(`${PROXY_BASE_URL}/api/proxy`, {
         method: 'POST',
-        headers: { 'Authorization': `Basic ${auth}`, 'Accept': 'application/json', 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          jql: safeJql, 
-          // 🌟 다이어트 1: "6100201" 처럼 고유 키워드를 쓴다면 상위 8개면 충분히 힌트를 찾습니다. (15 -> 8)
-          maxResults: 8, 
-          fields: ["summary", "status", "description", "comment"] 
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userEmail: config.userEmail, target: 'atlassian', method: 'POST', endpoint: '/rest/api/3/search/jql',
+          body: { jql: safeJql, maxResults: 8, fields: ["summary", "status", "description", "comment"] }
         })
       });
 
-      if (!res.ok) return `Jira API 통신 실패 (${res.status}): ${await res.text()}`;
-
+      if (!res.ok) return `Jira API 통신 실패: ${await res.text()}`;
       const data = await res.json();
       if (!data.issues || data.issues.length === 0) return `해당 키워드 조합(${args.keywords.join(', ')})으로 검색된 Jira 이슈가 없습니다.`;
 
       return data.issues.map((i: any) => {
-        const summary = i.fields?.summary;
-        const status = i.fields?.status?.name;
-        
-        // 🌟 다이어트 2: JSON 구조를 날리고 순수 텍스트만 추출합니다. 
-        // 텍스트만 뽑았기 때문에 3500자가 아니라 2000자만 해도 본문 전체를 넉넉히 커버합니다.
         let desc = extractTextFromJira(i.fields?.description);
-          
         let commentsText = '';
-        if (i.fields?.comment?.comments && i.fields.comment.comments.length > 0) {
-            // 댓글도 최신 3개 정도의 순수 텍스트만 가져옵니다.
-            const latestComments = i.fields.comment.comments.slice(-3);
-            commentsText = latestComments.map((c: any) => {
-                const cleanComment = extractTextFromJira(c.body);
-                return `- ${cleanComment.substring(0, 500)}`;
-            }).join('\n');
+        if (i.fields?.comment?.comments) {
+            commentsText = i.fields.comment.comments.slice(-3).map((c: any) => `- ${extractTextFromJira(c.body).substring(0, 500)}`).join('\n');
         }
-        
-        // 불필요한 기호(JSON)가 사라져서 토큰 사용량이 확 줄어듭니다.
-        return `[일감]: ${i.key}\n[링크]: ${baseUrl}/browse/${i.key}\n[제목]: ${summary} (${status})\n[본문]: ${desc.substring(0, 2000)}\n[댓글]:\n${commentsText || '없음'}`;
+        return `[일감]: ${i.key}\n[링크]: ${i.issueLink}\n[제목]: ${i.fields?.summary} (${i.fields?.status?.name})\n[본문]: ${desc.substring(0, 2000)}\n[댓글]:\n${commentsText || '없음'}`;
       }).join('\n\n--------------------\n\n');
     }
 
     if (name === 'search_confluence') {
-      const spaces = config.confSpaces && config.confSpaces.length > 0
-        ? `space in (${config.confSpaces.map((s: string) => `"${s}"`).join(', ')}) AND `
-        : '';
-
+      const spaces = config.confSpaces?.length > 0 ? `space in (${config.confSpaces.map((s: string) => `"${s}"`).join(', ')}) AND ` : '';
       if (!args.keywords || args.keywords.length === 0) return "검색 키워드가 없습니다.";
-
-      // 🌟 개선 1: Confluence의 text 필드는 제목, 본문, 댓글을 모두 포괄하여 딥서치합니다.
-      const keywordQueries = args.keywords
-        .map((k: string) => `text ~ "${k.replace(/"/g, '')}"`)
-        .join(' AND ');
-
-      // 🌟 개선 2: 최신 생성 문서가 먼저 오도록 정렬 (created desc)
+      const keywordQueries = args.keywords.map((k: string) => `text ~ "${k.replace(/"/g, '')}"`).join(' AND ');
       const safeCql = `${spaces}(${keywordQueries}) order by created desc`;
 
-      const apiUrl = baseUrl.includes('/wiki') ? `${baseUrl}/rest/api/content/search` : `${baseUrl}/wiki/rest/api/content/search`;
-      
-      // 🌟 개선 3: limit을 10으로 늘리고, 토큰 낭비를 막기 위해 순수 텍스트(body.plain)만 요청합니다.
-      const res = await fetch(`${apiUrl}?cql=${encodeURIComponent(safeCql)}&limit=6&expand=body.plain`, {
-        headers: { 'Authorization': `Basic ${auth}`, 'Accept': 'application/json' }
+      const res = await fetch(`${PROXY_BASE_URL}/api/proxy`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userEmail: config.userEmail, target: 'atlassian', method: 'GET',
+          endpoint: `/wiki/rest/api/content/search?cql=${encodeURIComponent(safeCql)}&limit=6&expand=body.plain`
+        })
       });
       
-      if (!res.ok) return `Confluence API 통신 실패 (${res.status}): ${await res.text()}`;
-
+      if (!res.ok) return `Confluence API 통신 실패: ${await res.text()}`;
       const data = await res.json();
-      if (!data.results || data.results.length === 0) return `해당 키워드 조합(${args.keywords.join(', ')})으로 검색된 Confluence 문서가 없습니다.`;
+      if (!data.results || data.results.length === 0) return `검색된 Confluence 문서가 없습니다.`;
       
       return data.results.map((r: any) => {
-        // body.plain.value는 이미 HTML이 제거된 깔끔한 텍스트입니다.
-        const plainText = r.body?.plain?.value || '내용 없음';
-        
-        // 🌟 개선 4: 넉넉하게 2000자까지 잘라서 AI에게 문맥을 충분히 줍니다.
-        return `[문서 제목]: ${r.title}\n[링크]: ${baseUrl.split('/wiki')[0]}/wiki${r._links.webui}\n[본문 내용]: ${plainText.substring(0, 3000)}`;
+        // 🌟 핵심: Vercel이 만들어준 r.contentLink를 그대로 씁니다! (webLink 파싱 로직도 날려버립니다)
+        return `[문서 제목]: ${r.title}\n[링크]: ${r.contentLink}\n[본문 내용]: ${(r.body?.plain?.value || '').substring(0, 3000)}`;
       }).join('\n\n--------------------\n\n');
     }
 
     if (name === 'search_zendesk') {
       if (!args.keywords || args.keywords.length === 0) return "검색 키워드가 없습니다.";
-
-      // Zendesk 검색 엔진이 각각의 단어를 반드시 포함해야 하는 단어로 인식하도록 따옴표로 감싸고 띄어쓰기로 연결합니다.
-      // 예시: type:ticket "환불" "지연" "영수증"
       const safeQuery = args.keywords.map((k: string) => `"${k.replace(/"/g, '')}"`).join(' ');
-
-      const zenAuth = Buffer.from(`${config.zendeskEmail}/token:${config.zendeskToken}`).toString('base64');
-      const zenHeaders = { 'Authorization': `Basic ${zenAuth}`, 'Accept': 'application/json' };
       
-      const res = await fetch(`https://${config.zendeskSubdomain}.zendesk.com/api/v2/search.json?query=type:ticket ${encodeURIComponent(safeQuery)}`, { headers: zenHeaders });
+      const res = await fetch(`${PROXY_BASE_URL}/api/proxy`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userEmail: config.userEmail, target: 'zendesk', method: 'GET',
+          endpoint: `/api/v2/search.json?query=type:ticket%20${encodeURIComponent(safeQuery)}`
+        })
+      });
       
-      if (!res.ok) return `Zendesk API 통신 실패 (${res.status}): ${await res.text()}`;
-      
+      if (!res.ok) return `Zendesk API 통신 실패: ${await res.text()}`;
       const data = await res.json();
-      if (!data.results || data.results.length === 0) return `해당 키워드 조합(${args.keywords.join(', ')})으로 검색된 Zendesk 티켓이 없습니다.`;
+      if (!data.results || data.results.length === 0) return `검색된 Zendesk 티켓이 없습니다.`;
       
-      // 🌟 AI가 문맥을 필터링할 수 있도록 3개에서 5개로 늘립니다. (Zendesk는 코멘트 통신이 무거워서 5개가 적당합니다)
-      const topTickets = data.results.slice(0, 5);
+      const topTickets = data.results.slice(0, 8);
       const ticketDetails = await Promise.all(topTickets.map(async (t: any) => {
         try {
-          const commentRes = await fetch(`https://${config.zendeskSubdomain}.zendesk.com/api/v2/tickets/${t.id}/comments.json`, { headers: zenHeaders });
+          // 🌟 3번 버그 해결 (루프 내부 통신도 프록시로)
+          const commentRes = await fetch(`${PROXY_BASE_URL}/api/proxy`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userEmail: config.userEmail, target: 'zendesk', method: 'GET', endpoint: `/api/v2/tickets/${t.id}/comments.json` })
+          });
           const commentData = await commentRes.json();
           let conversation = `[최초 문의]: ${t.description?.substring(0, 300)}...`;
-          if (commentData.comments && commentData.comments.length > 1) {
-            conversation += `\n[팀원 답변]: ${stripHtml(commentData.comments[commentData.comments.length - 1].body).substring(0, 600)}...`;
-          }
-          return `[티켓 #${t.id}] ${t.subject}\n[링크]: https://${config.zendeskSubdomain}.zendesk.com/agent/tickets/${t.id}\n${conversation}`;
+          if (commentData.comments?.length > 1) conversation += `\n[팀원 답변]: ${stripHtml(commentData.comments[commentData.comments.length - 1].body).substring(0, 600)}...`;
+
+          return `[티켓 #${t.id}] ${t.subject}\n[링크]: ${t.ticketLink}\n${conversation}`;
         } catch (err) {
-          return `[티켓 #${t.id}] ${t.subject}\n[링크]: https://${config.zendeskSubdomain}.zendesk.com/agent/tickets/${t.id}\n[최초 문의]: ${t.description?.substring(0, 500)}...`;
+          return `[티켓 #${t.id}] ${t.subject}\n[링크]: ${t.ticketLink}\n[최초 문의]: ${t.description?.substring(0, 500)}...`;
         }
       }));
       return ticketDetails.join('\n\n--------------------\n\n');

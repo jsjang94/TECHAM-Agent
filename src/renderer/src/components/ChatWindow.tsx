@@ -88,37 +88,39 @@ export default function ChatWindow({
         <div className="main-content">
 
           {isConfiguring ? (
-            /* 💡 설정 화면 (설정 화면 자체는 고정, 안쪽 옵션들만 스크롤) */
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '40px', minHeight: 0, overflow: 'hidden' }}>
-              <h3 style={{ color: '#fff', marginBottom: '16px', flexShrink: 0 }}>시스템 연동 설정</h3>
-              <div style={{ flexShrink: 0, display: 'flex', gap: '8px', marginBottom: '24px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '10px' }}>
-                <button onClick={() => setActiveTab('gemini')} style={{ background: activeTab === 'gemini' ? '#00f3ff' : 'transparent', color: activeTab === 'gemini' ? '#000' : '#fff', border: '1px solid #00f3ff', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>Gemini AI</button>
-                <button onClick={() => setActiveTab('atlassian')} style={{ background: activeTab === 'atlassian' ? '#00f3ff' : 'transparent', color: activeTab === 'atlassian' ? '#000' : '#fff', border: '1px solid #00f3ff', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>Atlassian</button>
-                <button onClick={() => setActiveTab('zendesk')} style={{ background: activeTab === 'zendesk' ? '#00f3ff' : 'transparent', color: activeTab === 'zendesk' ? '#000' : '#fff', border: '1px solid #00f3ff', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>Zendesk</button>
-              </div>
+              <h3 style={{ color: '#fff', marginBottom: '8px', flexShrink: 0 }}>시스템 연동 설정</h3>
+              <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '12px', marginBottom: '24px', flexShrink: 0 }}>
+                모든 통신은 보안 프록시를 통해 안전하게 처리됩니다. 사내 이메일 인증이 필요합니다.
+              </p>
               
               <div style={{ flex: 1, overflowY: 'auto', paddingRight: '10px' }}>
-                {activeTab === 'gemini' && ( <div><input placeholder="Gemini API Key" value={form.apiKey} onChange={e => setForm({...form, apiKey: e.target.value})} style={inputStyle} /></div> )}
-                {activeTab === 'atlassian' && ( 
-                  <div>
-                    <div style={{ display: 'flex', gap: '6px', marginBottom: '16px' }}>
-                      <button onClick={() => setAtlassianSubTab('common')} style={{ background: atlassianSubTab === 'common' ? 'rgba(255,255,255,0.2)' : 'transparent', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer', fontSize: '11px' }}>공통</button>
-                      <button onClick={() => setAtlassianSubTab('jira')} style={{ background: atlassianSubTab === 'jira' ? 'rgba(255,255,255,0.2)' : 'transparent', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer', fontSize: '11px' }}>Jira</button>
-                      <button onClick={() => setAtlassianSubTab('confluence')} style={{ background: atlassianSubTab === 'confluence' ? 'rgba(255,255,255,0.2)' : 'transparent', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer', fontSize: '11px' }}>Confluence</button>
-                    </div>
-                    {atlassianSubTab === 'common' && ( <div><input placeholder="도메인 URL" value={form.confUrl} onChange={e => setForm({...form, confUrl: e.target.value})} style={inputStyle} /><input placeholder="이메일" value={form.confEmail} onChange={e => setForm({...form, confEmail: e.target.value})} style={inputStyle} /><input type="password" placeholder="토큰" value={form.confToken} onChange={e => setForm({...form, confToken: e.target.value})} style={inputStyle} /></div> )}
-                    {atlassianSubTab === 'jira' && ( <div>{form.jiraSpaces.map((space: string, idx: number) => ( <div key={idx} style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}><input value={space} onChange={e => handleArrayChange('jiraSpaces', idx, e.target.value)} style={{ ...inputStyle, marginBottom: 0 }} />{form.jiraSpaces.length > 1 && <button onClick={() => removeArrayItem('jiraSpaces', idx)}>✕</button>}</div> ))} <button onClick={() => addArrayItem('jiraSpaces')}>+ 추가</button></div> )}
-                    {atlassianSubTab === 'confluence' && ( <div>{form.confSpaces.map((space: string, idx: number) => ( <div key={idx} style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}><input value={space} onChange={e => handleArrayChange('confSpaces', idx, e.target.value)} style={{ ...inputStyle, marginBottom: 0 }} />{form.confSpaces.length > 1 && <button onClick={() => removeArrayItem('confSpaces', idx)}>✕</button>}</div> ))} <button onClick={() => addArrayItem('confSpaces')}>+ 추가</button></div> )}
+                <p style={{ color: '#00f3ff', fontSize: '12px', marginBottom: '4px' }}>1. 사용자 인증 (사내 이메일)</p>
+                <input placeholder="홍길동@com2us.com" value={form.userEmail} onChange={e => setForm({...form, userEmail: e.target.value})} style={inputStyle} />
+
+                <p style={{ color: '#00f3ff', fontSize: '12px', marginBottom: '4px', marginTop: '16px' }}>2. Jira 타겟 스페이스</p>
+                {form.jiraSpaces.map((space: string, idx: number) => ( 
+                  <div key={idx} style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+                    <input value={space} onChange={e => handleArrayChange('jiraSpaces', idx, e.target.value)} style={{ ...inputStyle, marginBottom: 0 }} />
+                    {form.jiraSpaces.length > 1 && <button onClick={() => removeArrayItem('jiraSpaces', idx)} style={{ background:'none', border:'none', color:'#fff', cursor:'pointer' }}>✕</button>}
                   </div> 
-                )}
-                {activeTab === 'zendesk' && ( <div><input placeholder="서브도메인" value={form.zendeskSubdomain} onChange={e => setForm({...form, zendeskSubdomain: e.target.value})} style={inputStyle} /><input placeholder="이메일" value={form.zendeskEmail} onChange={e => setForm({...form, zendeskEmail: e.target.value})} style={inputStyle} /><input type="password" placeholder="토큰" value={form.zendeskToken} onChange={e => setForm({...form, zendeskToken: e.target.value})} style={inputStyle} /></div> )}
+                ))} 
+                <button onClick={() => addArrayItem('jiraSpaces')} style={{ background:'none', border:'none', color:'#00f3ff', cursor:'pointer', fontSize: '12px' }}>+ 추가</button>
+
+                <p style={{ color: '#00f3ff', fontSize: '12px', marginBottom: '4px', marginTop: '16px' }}>3. Confluence 타겟 스페이스</p>
+                {form.confSpaces.map((space: string, idx: number) => ( 
+                  <div key={idx} style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+                    <input value={space} onChange={e => handleArrayChange('confSpaces', idx, e.target.value)} style={{ ...inputStyle, marginBottom: 0 }} />
+                    {form.confSpaces.length > 1 && <button onClick={() => removeArrayItem('confSpaces', idx)} style={{ background:'none', border:'none', color:'#fff', cursor:'pointer' }}>✕</button>}
+                  </div> 
+                ))} 
+                <button onClick={() => addArrayItem('confSpaces')} style={{ background:'none', border:'none', color:'#00f3ff', cursor:'pointer', fontSize: '12px' }}>+ 추가</button>
               </div>
               
               <button onClick={() => saveConfigAndConnect(form)} disabled={isLoading} style={{ width: '100%', padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: '#00f3ff', color: '#000', fontWeight: 'bold', cursor: 'pointer', marginTop: '20px', flexShrink: 0 }}>
-                {isLoading ? '연결 중...' : '모든 설정 저장 및 가동'}
+                {isLoading ? '설정 및 가동 중...' : '저장 및 가동'}
               </button>
             </div>
-
           ) : isErrorNoteOpen ? (
             /* 💡 오답노트 화면 (안쪽 옵션들만 스크롤) */
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '40px', minHeight: 0, overflow: 'hidden' }}>

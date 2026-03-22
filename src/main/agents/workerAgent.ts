@@ -1,13 +1,17 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { workerToolDeclarations, executeMcpTool } from '../mcp/tools';
 
+const PROXY_BASE_URL = 'https://techam-proxy.vercel.app'; // 끝에 슬래시 빼고 작성!
+
 export async function runWorkerAgent(directive: string, config: any): Promise<string> {
-  const genAI = new GoogleGenerativeAI(config.apiKey);
+  const genAI = new GoogleGenerativeAI("NO_KEY_SECURE_MODE");
   
-  // 🌟 행동대장: 저렴하고 빠른
   const workerModel = genAI.getGenerativeModel({ 
     model: "gemini-2.5-flash",
     tools: [{ functionDeclarations: workerToolDeclarations }]
+  }, {
+    baseUrl: `${PROXY_BASE_URL}/api/gemini`,
+    customHeaders: { 'x-user-email': config.userEmail }
   });
 
   const chat = workerModel.startChat({
