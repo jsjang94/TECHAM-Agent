@@ -233,6 +233,8 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
             if (!urlText.startsWith('http')) urlText = `https://${urlText}`;
             results.push(`[제목]: ${title}\n[URL]: ${urlText}\n[요약]: ${snippet}`);
           }
+
+          return true;
         });
 
         if (results.length === 0) return "검색 결과가 없습니다.";
