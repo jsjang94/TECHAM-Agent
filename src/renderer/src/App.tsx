@@ -74,6 +74,7 @@ export default function App() {
 
         let pureHistory = messages
           .filter(m => !m.isSystem && m.text !== '모든 시스템과 직통 연결되었습니다. 무엇을 검색할까요?')
+          .slice(-2)
           .map(m => ({ role: m.isBot ? "model" : "user", parts: [{ text: m.text }] }));
         if (pureHistory.length > 0 && pureHistory[0].role === 'model') pureHistory.shift();
 

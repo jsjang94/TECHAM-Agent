@@ -1,4 +1,5 @@
 import { SchemaType, FunctionDeclaration } from '@google/generative-ai';
+import * as cheerio from 'cheerio';
 
 // 만능 HTML 정제기
 export const stripHtml = (html: string) => {
@@ -85,17 +86,25 @@ export const workerToolDeclarations: FunctionDeclaration[] = [
     }
   },
   {
+  name: "search_hive_docs",
+  description: "사용자가 하이브(Hive) 개발자 사이트의 문서를 찾아달라고 할 때, 특정 키워드로 검색하여 관련 문서들의 URL 리스트와 요약을 가져옵니다. URL을 모를 때 이 도구로 먼저 검색하세요.",
+  parameters: {
+    type: SchemaType.OBJECT,
+    properties: {
+      query: { type: SchemaType.STRING, description: "검색할 키워드 (예: '빌링', '유저 인게이지먼트', '로그인')" }
+    },
+    required: ["query"]
+  }
+},
+{
     name: "scrape_hive_docs",
-    description: "Hive Developers 사이트의 문서를 읽어옵니다. 상세 경로를 모를 경우, 해당 카테고리의 'index.html'을 먼저 읽어 링크를 확인한 후 이동하세요. (예: 'dev/authv4/index.html')",
-    parameters: { 
-      type: SchemaType.OBJECT, 
-      properties: { 
-        urlPath: { 
-          type: SchemaType.STRING, 
-          description: "문서 상대 경로 (반드시 .html 포함. 예: 'dev/authv4/login-helper.html')" 
-        } 
-      }, 
-      required: ["urlPath"] 
+    description: "하이브(Hive) 개발자 사이트의 특정 URL에 접속하여 문서의 본문 내용을 상세하게 읽어옵니다. URL을 이미 알고 있거나 search_hive_docs로 URL을 찾은 후에 문서 내용을 파악하기 위해 반드시 사용하세요.",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        url: { type: SchemaType.STRING, description: "읽어올 Hive 개발자 사이트의 URL (예: https://developers.hiveplatform.ai/...)" }
+      },
+      required: ["url"]
     }
   }
 ];
@@ -194,34 +203,149 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
       return ticketDetails.join('\n\n--------------------\n\n');
     }
 
-    else if (name === 'scrape_hive_docs') {
-      const [purePath, anchor] = args.urlPath.split('#');
-      let path = purePath.trim();
-      if (!path.endsWith('.html') && !path.includes('.') && !path.endsWith('/')) path += '.html';
-      
-      const targetUrl = `https://developers.hiveplatform.ai/ko/latest/${path}`.replace(/([^:]\/)\/+/g, "$1");
-      
+    else if (name === 'search_hive_docs') {
       try {
-        const res = await fetch(targetUrl);
-        if (!res.ok) return `[404] ${targetUrl} 접속 실패. 경로를 확인하세요.`;
+        if (!args.query) return "검색어가 없습니다.";
 
-        const html = await res.text();
-        const cleanText = stripHtml(html);
-
-        if (anchor) {
-          const marker = `[SECTION: ${anchor}]`;
-          const anchorIndex = cleanText.indexOf(marker);
-          if (anchorIndex !== -1) {
-            // 앵커를 찾은 경우 해당 부분부터 반환
-            return `[성공: ${targetUrl}#${anchor}]\n\n${cleanText.substring(anchorIndex, anchorIndex + 5000)}`;
+        // 구글 대신 봇 차단이 덜한 DuckDuckGo HTML 버전을 일반 브라우저인 척 찌릅니다.
+        const searchQuery = `site:developers.hiveplatform.ai/ko ${args.query}`;
+        const res = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(searchQuery)}`, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7'
           }
-          // 앵커를 못 찾은 경우 안내 문구와 함께 전체 본문 반환
-          return `[주의: 앵커 '${anchor}'를 찾지 못함]\n\n${cleanText.substring(0, 8000)}`;
+        });
+
+        if (!res.ok) return `검색 실패: 상태 코드 ${res.status}`;
+        
+        const html = await res.text();
+        const $ = cheerio.load(html);
+        const results: string[] = [];
+
+        // 검색 결과 5개 추출
+        $('.result').each((i, el) => {
+          if (i >= 3) return false;
+          const title = $(el).find('.result__title').text().trim();
+          let urlText = $(el).find('.result__url').text().trim().replace(/\s+/g, '');
+          const snippet = $(el).find('.result__snippet').text().trim();
+          
+          if (urlText) {
+            if (!urlText.startsWith('http')) urlText = `https://${urlText}`;
+            results.push(`[제목]: ${title}\n[URL]: ${urlText}\n[요약]: ${snippet}`);
+          }
+        });
+
+        if (results.length === 0) return "검색 결과가 없습니다.";
+        return `[검색 결과]\n${results.join('\n\n')}\n\n(지시사항: 위 URL 중 질문과 가장 연관된 URL을 하나 골라 'scrape_hive_docs' 도구를 사용해 본문을 읽어오세요.)`;
+
+      } catch (error: any) {
+        return `검색 중 에러 발생: ${error.message}`;
+      }
+    }
+
+    // -----------------------------------------------------------------
+    // 📖 2. Hive 문서 정밀 크롤링 도구 (해시 # 타겟팅 지원)
+    // -----------------------------------------------------------------
+    else if (name === 'scrape_hive_docs') {
+      try {
+        if (!args.url) return "URL이 없습니다.";
+        
+        const targetUrl = args.url;
+        const urlObj = new URL(targetUrl);
+        const targetHash = urlObj.hash.replace('#', ''); 
+
+        const res = await fetch(urlObj.origin + urlObj.pathname, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept-Language': 'ko-KR,ko;q=0.9'
+          }
+        });
+
+        if (!res.ok) return `크롤링 통신 실패: 상태 코드 ${res.status}`;
+        
+        const html = await res.text();
+        const $ = cheerio.load(html);
+
+        // 1. 방해 요소 제거
+        $('nav, footer, header, script, style, aside, .sidebar, .table-of-contents, .hash-link').remove();
+
+        // 🌟 핵심 수정: AI가 조립할 필요 없이, 아예 완전한 다이렉트 딥링크를 제목 옆에 박아버립니다!
+        $('h1, h2, h3, h4, h5, h6').each((_, el) => {
+          const id = $(el).attr('id');
+          if (id) {
+             // 현재 문서의 기본 주소 + 앵커 아이디를 합친 완벽한 URL 생성
+             const fullDeepLink = `${urlObj.origin}${urlObj.pathname}#${id}`;
+             
+             // 제목 텍스트를 " [📍 가이드 링크: https://... ] 원래 제목 " 형태로 변환
+             $(el).text(`\n[📍 가이드 링크: ${fullDeepLink}]\n${$(el).text()}`);
+          }
+        });
+
+        let extractedText = '';
+
+        if (targetHash) {
+          let targetElement = $(`#${targetHash}`);
+          
+          // 🌟 TS 에러 해결: any로 캐스팅하여 name 속성에 안전하게 접근
+          let targetTagName = (targetElement[0] as any)?.name || '';
+
+          // 부모 h태그 찾기
+          if (targetElement.length > 0 && !targetTagName.match(/^h[1-6]$/i)) {
+             const parentHeader = targetElement.closest('h1, h2, h3, h4, h5, h6');
+             if (parentHeader.length > 0) {
+                 targetElement = parentHeader;
+                 targetTagName = (targetElement[0] as any)?.name || '';
+             }
+          }
+
+          if (targetElement.length > 0) {
+            extractedText += `[타겟 섹션]: ${targetElement.text().trim()}\n\n`;
+
+            // 타겟 제목 레벨 파악
+            const targetHeaderLevel = parseInt(targetTagName.replace(/h/i, '') || '6', 10);
+            
+            let currentElement = targetElement.next();
+            
+            // 형제 요소 순회
+            while (currentElement.length > 0) {
+              // 🌟 TS 에러 해결
+              const currentTagName = ((currentElement[0] as any)?.name || '').toLowerCase();
+              
+              if (currentTagName.match(/^h[1-6]$/)) {
+                const currentHeaderLevel = parseInt(currentTagName.replace('h', ''), 10);
+                if (currentHeaderLevel <= targetHeaderLevel) {
+                  break; // 다음 동급/상위 제목을 만나면 탐색 종료
+                }
+              }
+              
+              extractedText += currentElement.text().trim() + '\n\n';
+              currentElement = currentElement.next();
+            }
+          }
+        } 
+        
+        // 해시를 못 찾았거나 텍스트가 없으면 전체 긁어오기
+        if (!extractedText.trim()) {
+          const articleBody = $('main, article, .theme-doc-markdown').first();
+          extractedText = articleBody.length > 0 ? articleBody.text() : $('body').text();
         }
 
-        return `[성공: ${targetUrl}]\n\n${cleanText.substring(0, 8000)}`;
-      } catch (e: any) {
-        return `스크래핑 중 네트워크 에러: ${e.message}`;
+        const cleanText = extractedText.replace(/\n{3,}/g, '\n\n').trim();
+
+        // 🌟 바로 여기입니다! 리턴하기 직전에 콘솔을 찍어봅니다. 🌟
+        console.log("\n=== [크롤링 결과 앞부분 200자 확인] ===");
+        console.log(cleanText.substring(0, 200));
+        console.log("======================================\n");
+
+        let maxChars = 6000; 
+        if (targetHash && cleanText.includes('[타겟 섹션]')) {
+          maxChars = 10000; 
+        }
+
+        return `[문서 크롤링 결과]\n${cleanText.substring(0, maxChars)}`;
+
+      } catch (error: any) {
+        return `크롤링 중 에러 발생: ${error.message}`;
       }
     }
 
