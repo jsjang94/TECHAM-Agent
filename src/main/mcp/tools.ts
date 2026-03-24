@@ -1,18 +1,16 @@
 import { SchemaType, FunctionDeclaration } from '@google/generative-ai';
 import * as cheerio from 'cheerio';
 
-// 만능 HTML 정제기
+// 만능 HTML 정제기 (유지)
 export const stripHtml = (html: string) => {
   if (!html) return '';
   
   let processed = html
     .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '') 
     .replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '')
-    // 🌟 핵심 1: id나 name 속성을 [SECTION: id명] 형태의 텍스트로 치환하여 AI에게 위치를 알려줌
     .replace(/<[a-zA-Z0-9]+[^>]* (id|name)=["']([^"']*)["'][^>]*>/gi, '\n\n[SECTION: $2]\n\n')
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-    // 🌟 핵심 2: 링크 정보를 [텍스트](주소) 형태로 보존
     .replace(/<a[^>]*href=["']([^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi, ' [$2]($1) ');
 
   return processed
@@ -21,6 +19,7 @@ export const stripHtml = (html: string) => {
     .trim();
 };
 
+// Jira 본문 추출기 (유지)
 export const extractTextFromJira = (content: any): string => {
   if (!content) return '';
   if (typeof content === 'string') return content;
@@ -37,7 +36,7 @@ export const extractTextFromJira = (content: any): string => {
   return text.trim();
 };
 
-// 🌟 행동대장(Flash)이 사용할 도구 명세서
+// 도구 명세서 (유지)
 export const workerToolDeclarations: FunctionDeclaration[] = [
   {
     name: "search_confluence",
@@ -60,7 +59,6 @@ export const workerToolDeclarations: FunctionDeclaration[] = [
     parameters: { 
       type: SchemaType.OBJECT, 
       properties: { 
-        // 🌟 단순 STRING에서 ARRAY로 변경! 여러 키워드를 받습니다.
         keywords: { 
           type: SchemaType.ARRAY, 
           items: { type: SchemaType.STRING },
@@ -86,17 +84,17 @@ export const workerToolDeclarations: FunctionDeclaration[] = [
     }
   },
   {
-  name: "search_hive_docs",
-  description: "사용자가 하이브(Hive) 개발자 사이트의 문서를 찾아달라고 할 때, 특정 키워드로 검색하여 관련 문서들의 URL 리스트와 요약을 가져옵니다. URL을 모를 때 이 도구로 먼저 검색하세요.",
-  parameters: {
-    type: SchemaType.OBJECT,
-    properties: {
-      query: { type: SchemaType.STRING, description: "검색할 키워드 (예: '빌링', '유저 인게이지먼트', '로그인')" }
-    },
-    required: ["query"]
-  }
-},
-{
+    name: "search_hive_docs",
+    description: "사용자가 하이브(Hive) 개발자 사이트의 문서를 찾아달라고 할 때, 특정 키워드로 검색하여 관련 문서들의 URL 리스트와 요약을 가져옵니다. URL을 모를 때 이 도구로 먼저 검색하세요.",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        query: { type: SchemaType.STRING, description: "검색할 키워드 (예: '빌링', '유저 인게이지먼트', '로그인')" }
+      },
+      required: ["query"]
+    }
+  },
+  {
     name: "scrape_hive_docs",
     description: "하이브(Hive) 개발자 사이트의 특정 URL에 접속하여 문서의 본문 내용을 상세하게 읽어옵니다. URL을 이미 알고 있거나 search_hive_docs로 URL을 찾은 후에 문서 내용을 파악하기 위해 반드시 사용하세요.",
     parameters: {
@@ -111,25 +109,58 @@ export const workerToolDeclarations: FunctionDeclaration[] = [
 
 const PROXY_BASE_URL = 'https://techam-proxy.vercel.app';
 
-// 🌟 도구 실행기 (API 통신 전담)
+// 🌟 [핵심 변경] Atlassian (Jira/Confluence) 공통 토큰 발급 헬퍼 함수
+async function getAtlassianAuth(userEmail: string): Promise<{ authHeader: string, baseUrl: string } | { error: string }> {
+  try {
+    const tokenRes = await fetch(`${PROXY_BASE_URL}/api/proxy`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userEmail, target: 'atlassian-token' })
+    });
+    
+    if (!tokenRes.ok) return { error: `Atlassian 인증 정보 획득 실패 (상태 코드: ${tokenRes.status})` };
+    
+    const data = await tokenRes.json();
+    if (!data.baseUrl) return { error: "사내망 Atlassian 주소가 설정되지 않았습니다." };
+    
+    return { authHeader: data.authHeader, baseUrl: data.baseUrl };
+  } catch (err: any) {
+    return { error: `Atlassian 토큰 발급 중 시스템 에러: ${err.message}` };
+  }
+}
+
 export async function executeMcpTool(name: string, args: any, config: any): Promise<string> {
   try {
+    // =========================================================================
+    // 📖 1. Jira 검색 (사내망 직결 + 공통 인증 헬퍼 사용)
+    // =========================================================================
     if (name === 'search_jira') {
       const projects = config.jiraSpaces?.length > 0 ? `project in (${config.jiraSpaces.join(', ')}) AND ` : '';
       if (!args.keywords || args.keywords.length === 0) return "검색 키워드가 없습니다.";
       const keywordQueries = args.keywords.map((k: string) => `text ~ "${k.replace(/"/g, '')}"`).join(' AND ');
       const safeJql = `${projects}(${keywordQueries}) ORDER BY created DESC`;
 
-      const res = await fetch(`${PROXY_BASE_URL}/api/proxy`, {
+      // 🌟 공통 헬퍼 함수로 토큰 호출 단일화
+      const authResult = await getAtlassianAuth(config.userEmail);
+      if ('error' in authResult) return authResult.error;
+      const { authHeader, baseUrl } = authResult;
+
+      const res = await fetch(`${baseUrl}/rest/api/3/search/jql`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userEmail: config.userEmail, target: 'atlassian', method: 'POST', endpoint: '/rest/api/3/search/jql',
-          body: { jql: safeJql, maxResults: 8, fields: ["summary", "status", "description", "comment"] }
+        headers: { 
+          'Authorization': authHeader,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({ 
+          jql: safeJql, 
+          maxResults: 8, 
+          fields: ["summary", "status", "description", "comment"] 
         })
       });
 
-      if (!res.ok) return `Jira API 통신 실패: ${await res.text()}`;
+      if (!res.ok) return `사내 Jira API 직접 통신 실패 (상태 코드: ${res.status})`;
+      
       const data = await res.json();
       if (!data.issues || data.issues.length === 0) return `해당 키워드 조합(${args.keywords.join(', ')})으로 검색된 Jira 이슈가 없습니다.`;
 
@@ -139,34 +170,48 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
         if (i.fields?.comment?.comments) {
             commentsText = i.fields.comment.comments.slice(-3).map((c: any) => `- ${extractTextFromJira(c.body).substring(0, 500)}`).join('\n');
         }
-        return `[일감]: ${i.key}\n[링크]: ${i.issueLink}\n[제목]: ${i.fields?.summary} (${i.fields?.status?.name})\n[본문]: ${desc.substring(0, 2000)}\n[댓글]:\n${commentsText || '없음'}`;
+        const issueLink = `${baseUrl}/browse/${i.key}`;
+        return `[일감]: ${i.key}\n[링크]: ${issueLink}\n[제목]: ${i.fields?.summary} (${i.fields?.status?.name})\n[본문]: ${desc.substring(0, 2000)}\n[댓글]:\n${commentsText || '없음'}`;
       }).join('\n\n--------------------\n\n');
     }
 
+    // =========================================================================
+    // 📖 2. Confluence 검색 (사내망 직결 + 공통 인증 헬퍼 사용)
+    // =========================================================================
     if (name === 'search_confluence') {
       const spaces = config.confSpaces?.length > 0 ? `space in (${config.confSpaces.map((s: string) => `"${s}"`).join(', ')}) AND ` : '';
       if (!args.keywords || args.keywords.length === 0) return "검색 키워드가 없습니다.";
       const keywordQueries = args.keywords.map((k: string) => `text ~ "${k.replace(/"/g, '')}"`).join(' AND ');
       const safeCql = `${spaces}(${keywordQueries}) order by created desc`;
 
-      const res = await fetch(`${PROXY_BASE_URL}/api/proxy`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userEmail: config.userEmail, target: 'atlassian', method: 'GET',
-          endpoint: `/wiki/rest/api/content/search?cql=${encodeURIComponent(safeCql)}&limit=6&expand=body.plain`
-        })
+      // 🌟 공통 헬퍼 함수 재사용 (중복 코드 제거)
+      const authResult = await getAtlassianAuth(config.userEmail);
+      if ('error' in authResult) return authResult.error;
+      const { authHeader, baseUrl } = authResult;
+
+      const res = await fetch(`${baseUrl}/wiki/rest/api/content/search?cql=${encodeURIComponent(safeCql)}&limit=6&expand=body.plain`, {
+        method: 'GET',
+        headers: { 
+          'Authorization': authHeader,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        }
       });
       
-      if (!res.ok) return `Confluence API 통신 실패: ${await res.text()}`;
+      if (!res.ok) return `사내 Confluence API 직접 통신 실패 (상태 코드: ${res.status})`;
+      
       const data = await res.json();
       if (!data.results || data.results.length === 0) return `검색된 Confluence 문서가 없습니다.`;
       
       return data.results.map((r: any) => {
-        // 🌟 핵심: Vercel이 만들어준 r.contentLink를 그대로 씁니다! (webLink 파싱 로직도 날려버립니다)
-        return `[문서 제목]: ${r.title}\n[링크]: ${r.contentLink}\n[본문 내용]: ${(r.body?.plain?.value || '').substring(0, 3000)}`;
+        const contentLink = `${baseUrl}/wiki${r._links?.webui || ''}`;
+        return `[문서 제목]: ${r.title}\n[링크]: ${contentLink}\n[본문 내용]: ${(r.body?.plain?.value || '').substring(0, 3000)}`;
       }).join('\n\n--------------------\n\n');
     }
 
+    // =========================================================================
+    // 📖 3. Zendesk 검색 (외부망 - 프록시 통신)
+    // =========================================================================
     if (name === 'search_zendesk') {
       if (!args.keywords || args.keywords.length === 0) return "검색 키워드가 없습니다.";
       const safeQuery = args.keywords.map((k: string) => `"${k.replace(/"/g, '')}"`).join(' ');
@@ -179,14 +224,13 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
         })
       });
       
-      if (!res.ok) return `Zendesk API 통신 실패: ${await res.text()}`;
+      if (!res.ok) return `Zendesk API 통신 실패: ${res.status}`;
       const data = await res.json();
       if (!data.results || data.results.length === 0) return `검색된 Zendesk 티켓이 없습니다.`;
       
       const topTickets = data.results.slice(0, 8);
       const ticketDetails = await Promise.all(topTickets.map(async (t: any) => {
         try {
-          // 🌟 3번 버그 해결 (루프 내부 통신도 프록시로)
           const commentRes = await fetch(`${PROXY_BASE_URL}/api/proxy`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ userEmail: config.userEmail, target: 'zendesk', method: 'GET', endpoint: `/api/v2/tickets/${t.id}/comments.json` })
@@ -203,11 +247,13 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
       return ticketDetails.join('\n\n--------------------\n\n');
     }
 
+    // =========================================================================
+    // 📖 4. Hive Docs 검색 및 스크래핑 (외부망 - DuckDuckGo)
+    // =========================================================================
     else if (name === 'search_hive_docs') {
       try {
         if (!args.query) return "검색어가 없습니다.";
 
-        // 구글 대신 봇 차단이 덜한 DuckDuckGo HTML 버전을 일반 브라우저인 척 찌릅니다.
         const searchQuery = `site:developers.hiveplatform.ai/ko ${args.query}`;
         const res = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(searchQuery)}`, {
           headers: {
@@ -222,7 +268,6 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
         const $ = cheerio.load(html);
         const results: string[] = [];
 
-        // 검색 결과 5개 추출
         $('.result').each((i, el) => {
           if (i >= 3) return false;
           const title = $(el).find('.result__title').text().trim();
@@ -233,7 +278,6 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
             if (!urlText.startsWith('http')) urlText = `https://${urlText}`;
             results.push(`[제목]: ${title}\n[URL]: ${urlText}\n[요약]: ${snippet}`);
           }
-
           return true;
         });
 
@@ -244,10 +288,7 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
         return `검색 중 에러 발생: ${error.message}`;
       }
     }
-
-    // -----------------------------------------------------------------
-    // 📖 2. Hive 문서 정밀 크롤링 도구 (해시 # 타겟팅 지원)
-    // -----------------------------------------------------------------
+    
     else if (name === 'scrape_hive_docs') {
       try {
         if (!args.url) return "URL이 없습니다.";
@@ -268,17 +309,12 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
         const html = await res.text();
         const $ = cheerio.load(html);
 
-        // 1. 방해 요소 제거
         $('nav, footer, header, script, style, aside, .sidebar, .table-of-contents, .hash-link').remove();
 
-        // 🌟 핵심 수정: AI가 조립할 필요 없이, 아예 완전한 다이렉트 딥링크를 제목 옆에 박아버립니다!
         $('h1, h2, h3, h4, h5, h6').each((_, el) => {
           const id = $(el).attr('id');
           if (id) {
-             // 현재 문서의 기본 주소 + 앵커 아이디를 합친 완벽한 URL 생성
              const fullDeepLink = `${urlObj.origin}${urlObj.pathname}#${id}`;
-             
-             // 제목 텍스트를 " [📍 가이드 링크: https://... ] 원래 제목 " 형태로 변환
              $(el).text(`\n[📍 가이드 링크: ${fullDeepLink}]\n${$(el).text()}`);
           }
         });
@@ -287,11 +323,8 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
 
         if (targetHash) {
           let targetElement = $(`#${targetHash}`);
-          
-          // 🌟 TS 에러 해결: any로 캐스팅하여 name 속성에 안전하게 접근
           let targetTagName = (targetElement[0] as any)?.name || '';
 
-          // 부모 h태그 찾기
           if (targetElement.length > 0 && !targetTagName.match(/^h[1-6]$/i)) {
              const parentHeader = targetElement.closest('h1, h2, h3, h4, h5, h6');
              if (parentHeader.length > 0) {
@@ -302,42 +335,27 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
 
           if (targetElement.length > 0) {
             extractedText += `[타겟 섹션]: ${targetElement.text().trim()}\n\n`;
-
-            // 타겟 제목 레벨 파악
             const targetHeaderLevel = parseInt(targetTagName.replace(/h/i, '') || '6', 10);
-            
             let currentElement = targetElement.next();
             
-            // 형제 요소 순회
             while (currentElement.length > 0) {
-              // 🌟 TS 에러 해결
               const currentTagName = ((currentElement[0] as any)?.name || '').toLowerCase();
-              
               if (currentTagName.match(/^h[1-6]$/)) {
                 const currentHeaderLevel = parseInt(currentTagName.replace('h', ''), 10);
-                if (currentHeaderLevel <= targetHeaderLevel) {
-                  break; // 다음 동급/상위 제목을 만나면 탐색 종료
-                }
+                if (currentHeaderLevel <= targetHeaderLevel) break; 
               }
-              
               extractedText += currentElement.text().trim() + '\n\n';
               currentElement = currentElement.next();
             }
           }
         } 
         
-        // 해시를 못 찾았거나 텍스트가 없으면 전체 긁어오기
         if (!extractedText.trim()) {
           const articleBody = $('main, article, .theme-doc-markdown').first();
           extractedText = articleBody.length > 0 ? articleBody.text() : $('body').text();
         }
 
         const cleanText = extractedText.replace(/\n{3,}/g, '\n\n').trim();
-
-        // 🌟 바로 여기입니다! 리턴하기 직전에 콘솔을 찍어봅니다. 🌟
-        console.log("\n=== [크롤링 결과 앞부분 200자 확인] ===");
-        console.log(cleanText.substring(0, 200));
-        console.log("======================================\n");
 
         let maxChars = 6000; 
         if (targetHash && cleanText.includes('[타겟 섹션]')) {
@@ -351,11 +369,9 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
       }
     }
 
-    // 5. 알 수 없는 도구일 경우 (이게 없으면 Promise<string> 에러가 납니다)
     return "알 수 없는 도구 명령입니다.";
 
   } catch (error: any) {
-    // 최상위 에러 핸들링
     return `도구 실행 중 시스템 에러 발생: ${error.message}`;
   }
 }
