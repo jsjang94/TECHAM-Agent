@@ -7,7 +7,7 @@ export async function runWorkerAgent(directive: string, config: any): Promise<st
   const genAI = new GoogleGenerativeAI("NO_KEY_SECURE_MODE");
   
   const workerModel = genAI.getGenerativeModel({ 
-    model: "gemini-2.5-flash",
+    model: "gemini-3.1-flash-lite",
     generationConfig: {
       temperature: 0, // 🌟 핵심: 창의성을 0으로! 기계처럼 팩트만 찾게 만듭니다.
       topK: 1,        // 가장 확률이 높은 단어만 선택
