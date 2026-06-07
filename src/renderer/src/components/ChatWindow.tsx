@@ -99,16 +99,11 @@ export default function ChatWindow({
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '40px', minHeight: 0, overflow: 'hidden' }}>
               <h3 style={{ color: '#fff', marginBottom: '8px', flexShrink: 0 }}>시스템 연동 설정</h3>
               <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '12px', marginBottom: '24px', flexShrink: 0 }}>
-                모든 통신은 보안 프록시를 통해 안전하게 처리됩니다. 사내 이메일 인증이 필요합니다.
+                검색 대상 스페이스를 설정하세요. 모든 통신은 보안 프록시를 통해 처리됩니다.
               </p>
               
               <div style={{ flex: 1, overflowY: 'auto', paddingRight: '10px' }}>
-                <p style={{ color: '#00f3ff', fontSize: '12px', marginBottom: '4px' }}>1. 사용자 인증 (사내 이메일)</p>
-                <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
-                  <input placeholder="홍길동@com2us.com" value={form.userEmail} onChange={e => setForm({...form, userEmail: e.target.value})} style={{ ...inputStyle, marginBottom: 0 }} />
-                </div>
-
-                <p style={{ color: '#00f3ff', fontSize: '12px', marginBottom: '4px', marginTop: '16px' }}>2. Jira 타겟 스페이스</p>
+                <p style={{ color: '#00f3ff', fontSize: '12px', marginBottom: '4px' }}>1. Jira 타겟 스페이스</p>
                 {form.jiraSpaces.map((space: string, idx: number) => ( 
                   <div key={idx} style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
                     <input value={space} onChange={e => handleArrayChange('jiraSpaces', idx, e.target.value)} style={{ ...inputStyle, marginBottom: 0 }} />
@@ -117,7 +112,7 @@ export default function ChatWindow({
                 ))} 
                 <button onClick={() => addArrayItem('jiraSpaces')} style={{ background:'none', border:'none', color:'#00f3ff', cursor:'pointer', fontSize: '12px' }}>+ 추가</button>
 
-                <p style={{ color: '#00f3ff', fontSize: '12px', marginBottom: '4px', marginTop: '16px' }}>3. Confluence 타겟 스페이스</p>
+                <p style={{ color: '#00f3ff', fontSize: '12px', marginBottom: '4px', marginTop: '16px' }}>2. Confluence 타겟 스페이스</p>
                 {form.confSpaces.map((space: string, idx: number) => ( 
                   <div key={idx} style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
                     <input value={space} onChange={e => handleArrayChange('confSpaces', idx, e.target.value)} style={{ ...inputStyle, marginBottom: 0 }} />

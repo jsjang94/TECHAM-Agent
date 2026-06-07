@@ -53,15 +53,15 @@ app.whenReady().then(() => {
     if (win) win.setIgnoreMouseEvents(ignore, { forward: true })
   })
 
-  // 이메일 화이트리스트 검증 (프록시가 403 반환하면 미허가)
-  ipcMain.handle('validate-email', async (_, email: string) => {
+  // 이메일+비밀번호 로그인 검증
+  ipcMain.handle('validate-credentials', async (_, email: string, password: string) => {
     try {
       const res = await fetch(`${PROXY_BASE_URL}/api/proxy`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userEmail: email.trim(), target: 'ping' })
+        body: JSON.stringify({ userEmail: email.trim(), userPassword: password.trim(), target: 'login' })
       });
-      return { authorized: res.status !== 403 };
+      return { authorized: res.status === 200 };
     } catch {
       return { authorized: false };
     }

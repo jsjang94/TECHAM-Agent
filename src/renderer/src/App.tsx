@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import techamAgentImg from './assets/techamAgentImg.png'
 import ChatWindow from './components/ChatWindow'
+import LoginPopup from './components/LoginPopup'
 import './assets/main.css'
 
 const safeParse = (key: string, defaultVal: string[]) => {
@@ -17,7 +18,7 @@ export default function App() {
   })
   
   const [isConfiguring, setIsConfiguring] = useState(!config.userEmail)
-  const [isUnauthorizedOpen, setIsUnauthorizedOpen] = useState(false)
+  const [isLoginOpen, setIsLoginOpen] = useState(false)
   const [inputText, setInputText] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [messages, setMessages] = useState([{ text: '모든 시스템과 직통 연결되었습니다. 무엇을 검색할까요?', isBot: true, isSystem: false }])
@@ -42,16 +43,64 @@ export default function App() {
     if (chatArea) chatArea.scrollTo({ top: chatArea.scrollHeight, behavior: 'smooth' });
   }, [messages])
 
+  // 앱 시작 시 저장된 자격증명으로 자동 재인증
+  useEffect(() => {
+    const savedEmail = localStorage.getItem('hive_user_email')
+    const savedPassword = localStorage.getItem('hive_user_password')
+    if (!savedEmail || !savedPassword) {
+      setIsLoginOpen(true)
+      return
+    }
+    const electron = (window as any).electron
+    if (!electron?.ipcRenderer) return
+    electron.ipcRenderer.invoke('validate-credentials', savedEmail, savedPassword)
+      .then(({ authorized }: { authorized: boolean }) => {
+        if (!authorized) {
+          localStorage.removeItem('hive_user_email')
+          localStorage.removeItem('hive_user_password')
+          setConfig(prev => ({ ...prev, userEmail: '' }))
+          setIsConfiguring(true)
+          setIsLoginOpen(true)
+        }
+      })
+      .catch(() => { /* 네트워크 오류 시 기존 이메일 유지 */ })
+  }, [])
+
   useEffect(() => {
     setIsAgentHovered(false)
-    if (isChatOpen && !config.userEmail) {
-      setIsConfiguring(true)
-      setIsErrorNoteOpen(false)
-    }
-    // 채팅창이 열릴 때 저장된 위치 복원
-    if (isChatOpen && chatRef.current) {
-      chatRef.current.style.left = chatPosRef.current.left + 'px'
-      chatRef.current.style.top = chatPosRef.current.top + 'px'
+    if (isChatOpen) {
+      const savedEmail = localStorage.getItem('hive_user_email')
+      const savedPassword = localStorage.getItem('hive_user_password')
+      if (savedEmail && savedPassword) {
+        const electron = (window as any).electron
+        if (electron?.ipcRenderer) {
+          electron.ipcRenderer.invoke('validate-credentials', savedEmail, savedPassword)
+            .then(({ authorized }: { authorized: boolean }) => {
+              if (authorized) {
+                // 매번 명시적으로 userEmail 세팅 → stale closure 문제 방지
+                setConfig(prev => ({ ...prev, userEmail: savedEmail }))
+              } else {
+                localStorage.removeItem('hive_user_email')
+                localStorage.removeItem('hive_user_password')
+                setConfig(prev => ({ ...prev, userEmail: '' }))
+                setIsLoginOpen(true)
+              }
+            })
+            .catch(() => {
+              // 네트워크 오류 시 localStorage 값으로 유지
+              setConfig(prev => ({ ...prev, userEmail: savedEmail }))
+            })
+        } else {
+          setConfig(prev => ({ ...prev, userEmail: savedEmail }))
+        }
+      } else {
+        setIsLoginOpen(true)
+      }
+      // 저장된 채팅창 위치 복원
+      if (chatRef.current) {
+        chatRef.current.style.left = chatPosRef.current.left + 'px'
+        chatRef.current.style.top = chatPosRef.current.top + 'px'
+      }
     }
   }, [isChatOpen])
 
@@ -96,26 +145,14 @@ export default function App() {
   }
 
   const saveConfigAndConnect = async (newConfig: any) => {
-    const electron = (window as any).electron
-    setIsLoading(true)
-    try {
-      if (electron?.ipcRenderer) {
-        const { authorized } = await electron.ipcRenderer.invoke('validate-email', newConfig.userEmail)
-        if (!authorized) {
-          setIsUnauthorizedOpen(true)
-          return
-        }
-      }
-      setConfig(newConfig)
-      localStorage.setItem('hive_user_email', newConfig.userEmail)
-      localStorage.setItem('hive_conf_spaces', JSON.stringify(newConfig.confSpaces))
-      localStorage.setItem('hive_jira_spaces', JSON.stringify(newConfig.jiraSpaces))
-      setIsConfiguring(false)
-      setIsErrorNoteOpen(false)
-      setMessages(prev => [...prev, { text: `시스템 연동 완료! 보안 세션이 가동됩니다.`, isBot: true, isSystem: true }])
-    } finally {
-      setIsLoading(false)
-    }
+    // 이메일은 로그인 시 이미 검증됨 — config.userEmail 유지
+    const updatedConfig = { ...newConfig, userEmail: config.userEmail }
+    setConfig(updatedConfig)
+    localStorage.setItem('hive_conf_spaces', JSON.stringify(updatedConfig.confSpaces))
+    localStorage.setItem('hive_jira_spaces', JSON.stringify(updatedConfig.jiraSpaces))
+    setIsConfiguring(false)
+    setIsErrorNoteOpen(false)
+    setMessages(prev => [...prev, { text: `시스템 연동 완료! 보안 세션이 가동됩니다.`, isBot: true, isSystem: true }])
   }
 
   const toggleChat = (open: boolean) => {
@@ -180,22 +217,13 @@ export default function App() {
 
   return (
     <div className="main-container" style={{ width: '100vw', height: '100vh', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', backgroundColor: 'transparent' }}>
-      {isUnauthorizedOpen && (
-        <div className="interactable" style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
-          <div style={{ backgroundColor: '#1c1c1e', borderRadius: '16px', padding: '36px 32px', border: '1px solid rgba(255,255,255,0.12)', textAlign: 'center', maxWidth: '300px', width: '90%' }}>
-            <div style={{ fontSize: '48px', marginBottom: '16px' }}>🚫</div>
-            <h3 style={{ color: '#fff', marginBottom: '10px', fontSize: '16px' }}>허가된 계정이 아닙니다</h3>
-            <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: '13px', marginBottom: '28px', lineHeight: '1.6' }}>
-              사용이 허가된 사내 계정으로<br />다시 시도해주세요.
-            </p>
-            <button
-              onClick={() => setIsUnauthorizedOpen(false)}
-              style={{ padding: '10px 32px', borderRadius: '8px', border: 'none', backgroundColor: '#00f3ff', color: '#000', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px' }}
-            >
-              확인
-            </button>
-          </div>
-        </div>
+      {isLoginOpen && (
+        <LoginPopup
+          onSuccess={(email) => {
+            setConfig(prev => ({ ...prev, userEmail: email }))
+            setIsLoginOpen(false)
+          }}
+        />
       )}
       {isChatOpen && (
         <div
