@@ -9,24 +9,27 @@ const PROXY_BASE_URL = 'https://techam-proxy.vercel.app';
 function createWindow(): void {
   const primaryDisplay = screen.getPrimaryDisplay()
   const { width, height } = primaryDisplay.workAreaSize
-  const initialSize = 250 
 
+  // 창을 항상 풀스크린으로 고정 → 채팅창은 CSS로 드래그, 에이전트는 화면에 고정
   const mainWindow = new BrowserWindow({
-    width: initialSize, height: initialSize,
-    x: Math.floor((width - initialSize) / 2), y: Math.floor(height - initialSize),
-    
-    // 🌟 바탕화면이 보이도록 창 자체를 완전히 투명하게 뚫어줍니다!
-    transparent: true, 
-    frame: false, 
-    resizable: false, 
-    alwaysOnTop: true, 
-    hasShadow: false, // 투명 창의 경우 기본 그림자를 끕니다
-    // backgroundColor: '#1c1c1e' <- ❌ 창 전체를 까맣게 만들던 이 줄을 완전히 삭제했습니다!
-    
+    width, height,
+    x: 0, y: 0,
+    transparent: true,
+    frame: false,
+    resizable: false,
+    alwaysOnTop: true,
+    hasShadow: false,
     webPreferences: { preload: join(__dirname, '../preload/index.js'), sandbox: false }
   })
 
   mainWindow.on('ready-to-show', () => { mainWindow.show() })
+
+  // 기본적으로 투명 영역 클릭을 바탕화면으로 통과시킴
+  mainWindow.setIgnoreMouseEvents(true, { forward: true })
+
+  // 다른 앱 사용 시 뒤로 숨김, 포커스 시 다시 최상단
+  mainWindow.on('blur', () => { mainWindow.setAlwaysOnTop(false) })
+  mainWindow.on('focus', () => { mainWindow.setAlwaysOnTop(true) })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
@@ -34,27 +37,35 @@ function createWindow(): void {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
-  // 창 리사이징 IPC 로직 (채팅창 열릴 때 크기 조절)
-  ipcMain.on('resize-window', (event, targetWidth, targetHeight, isResizable) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    if (!win) return
-    const primaryDisplay = screen.getPrimaryDisplay()
-    const { width, height } = primaryDisplay.workAreaSize
-
-    const x = Math.floor((width - targetWidth) / 2)
-    
-    // 🌟 핵심: 채팅창이 열리든 말든, 창의 시작점(y)을 무조건 화면 맨 아래(bottom)에 고정시킵니다!
-    // 이렇게 하면 창이 위로만 쑥 늘어나고 로봇은 제자리에 가만히 있게 됩니다.
-    const y = Math.floor(height - targetHeight)
-
-    win.setResizable(isResizable)
-    win.setBounds({ x, y, width: targetWidth, height: targetHeight }, true)
-  })
 }
 
 app.whenReady().then(() => {
   app.on('browser-window-created', (_, window) => { optimizer.watchWindowShortcuts(window) })
   createWindow()
+
+  ipcMain.on('quit-app', () => {
+    app.exit(0)
+  })
+
+  // 마우스가 interactable 위: 클릭 캡처 / 투명 영역: 클릭 통과
+  ipcMain.on('set-ignore-mouse', (event, ignore: boolean) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (win) win.setIgnoreMouseEvents(ignore, { forward: true })
+  })
+
+  // 이메일 화이트리스트 검증 (프록시가 403 반환하면 미허가)
+  ipcMain.handle('validate-email', async (_, email: string) => {
+    try {
+      const res = await fetch(`${PROXY_BASE_URL}/api/proxy`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userEmail: email.trim(), target: 'ping' })
+      });
+      return { authorized: res.status !== 403 };
+    } catch {
+      return { authorized: false };
+    }
+  });
 
   // 🌟 [기존 코드 유지] 멀티 에이전트 통신 파이프라인
   ipcMain.handle('chat-with-agent', async (_, config, userMessage, chatHistory) => {

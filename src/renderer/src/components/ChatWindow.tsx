@@ -20,12 +20,14 @@ interface ChatWindowProps {
   errorNoteForm: any
   setErrorNoteForm: (val: any) => void
   submitErrorNote: () => Promise<void>
+  onTitlebarMouseDown: (e: React.MouseEvent) => void
 }
 
 export default function ChatWindow({
   isChatOpen, toggleChat, config, isConfiguring, setIsConfiguring, saveConfigAndConnect,
   messages, isLoading, inputText, setInputText, handleSend, handleKeyDown,
-  isErrorNoteOpen, setIsErrorNoteOpen, errorNoteForm, setErrorNoteForm, submitErrorNote
+  isErrorNoteOpen, setIsErrorNoteOpen, errorNoteForm, setErrorNoteForm, submitErrorNote,
+  onTitlebarMouseDown
 }: ChatWindowProps) {
 
   const [form, setForm] = useState(config)
@@ -46,7 +48,7 @@ export default function ChatWindow({
     <div className="chat-container">
       
       {/* 🌟 타이틀바 (절대 고정) */}
-      <div className="mac-titlebar">
+      <div className="mac-titlebar" onMouseDown={onTitlebarMouseDown}>
         <div className="mac-buttons">
           <div className="mac-btn mac-close" onClick={() => toggleChat(false)} title="위젯으로 돌아가기"></div>
           <div className="mac-btn mac-min"></div>
@@ -69,15 +71,21 @@ export default function ChatWindow({
                   <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)' }}>통합 시스템 검색</div>
                 </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: '#ffd700' }}>
-                <span style={{ width: '6px', height: '6px', backgroundColor: isLoading ? '#ff9500' : '#34c759', borderRadius: '50%' }}></span>
-                {isLoading ? '연산/검색 중...' : '대기 중'}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: !config.userEmail ? '#ff3b30' : '#ffd700' }}>
+                <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor:
+                  !config.userEmail ? '#ff3b30' :
+                  (isConfiguring && isLoading) ? '#ff9500' :
+                  isLoading ? '#ff9500' : '#34c759'
+                }}></span>
+                {!config.userEmail ? '로그인 필요' :
+                  (isConfiguring && isLoading) ? '로그인 중..' :
+                  isLoading ? '연산/검색 중...' : '대기 중'}
               </div>
             </div>
             
-            <button 
-              onClick={() => { setIsErrorNoteOpen(!isErrorNoteOpen); setIsConfiguring(false); }} 
-              style={{ width: '100%', textAlign: 'left', background: isErrorNoteOpen ? 'rgba(0,243,255,0.1)' : 'transparent', border: 'none', color: isErrorNoteOpen ? '#00f3ff' : 'rgba(255,255,255,0.7)', padding: '10px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button
+              onClick={() => { if (!config.userEmail) return; setIsErrorNoteOpen(!isErrorNoteOpen); setIsConfiguring(false); }}
+              style={{ width: '100%', textAlign: 'left', background: isErrorNoteOpen ? 'rgba(0,243,255,0.1)' : 'transparent', border: 'none', color: config.userEmail ? (isErrorNoteOpen ? '#00f3ff' : 'rgba(255,255,255,0.7)') : 'rgba(255,255,255,0.2)', padding: '10px', borderRadius: '8px', cursor: config.userEmail ? 'pointer' : 'not-allowed', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
               📝 오답노트
             </button>
           </div>
@@ -96,7 +104,9 @@ export default function ChatWindow({
               
               <div style={{ flex: 1, overflowY: 'auto', paddingRight: '10px' }}>
                 <p style={{ color: '#00f3ff', fontSize: '12px', marginBottom: '4px' }}>1. 사용자 인증 (사내 이메일)</p>
-                <input placeholder="홍길동@com2us.com" value={form.userEmail} onChange={e => setForm({...form, userEmail: e.target.value})} style={inputStyle} />
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+                  <input placeholder="홍길동@com2us.com" value={form.userEmail} onChange={e => setForm({...form, userEmail: e.target.value})} style={{ ...inputStyle, marginBottom: 0 }} />
+                </div>
 
                 <p style={{ color: '#00f3ff', fontSize: '12px', marginBottom: '4px', marginTop: '16px' }}>2. Jira 타겟 스페이스</p>
                 {form.jiraSpaces.map((space: string, idx: number) => ( 
@@ -129,16 +139,24 @@ export default function ChatWindow({
               
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto', paddingRight: '10px' }}>
                 <p style={{ color: '#00f3ff', fontSize: '12px', marginBottom: '4px' }}>1. 등록자</p>
-                <input value={errorNoteForm.author} onChange={e => setErrorNoteForm({...errorNoteForm, author: e.target.value})} style={inputStyle} />
-                
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+                  <input value={errorNoteForm.author} onChange={e => setErrorNoteForm({...errorNoteForm, author: e.target.value})} style={{ ...inputStyle, marginBottom: 0 }} />
+                </div>
+
                 <p style={{ color: '#00f3ff', fontSize: '12px', marginBottom: '4px' }}>2. 질문(키워드)</p>
-                <textarea value={errorNoteForm.question} onChange={e => setErrorNoteForm({...errorNoteForm, question: e.target.value})} style={{ ...inputStyle, height: '60px', resize: 'vertical' }} />
-                
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+                  <textarea value={errorNoteForm.question} onChange={e => setErrorNoteForm({...errorNoteForm, question: e.target.value})} style={{ ...inputStyle, marginBottom: 0, height: '60px', resize: 'vertical' }} />
+                </div>
+
                 <p style={{ color: '#00f3ff', fontSize: '12px', marginBottom: '4px' }}>3. 올바른 답변</p>
-                <textarea value={errorNoteForm.answer} onChange={e => setErrorNoteForm({...errorNoteForm, answer: e.target.value})} style={{ ...inputStyle, flex: 1, minHeight: '80px', resize: 'vertical' }} />
-                
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '10px', flex: 1 }}>
+                  <textarea value={errorNoteForm.answer} onChange={e => setErrorNoteForm({...errorNoteForm, answer: e.target.value})} style={{ ...inputStyle, marginBottom: 0, flex: 1, minHeight: '80px', resize: 'vertical' }} />
+                </div>
+
                 <p style={{ color: '#00f3ff', fontSize: '12px', marginBottom: '4px' }}>4. 참고 링크 (선택)</p>
-                <input value={errorNoteForm.link} onChange={e => setErrorNoteForm({...errorNoteForm, link: e.target.value})} style={inputStyle} />
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+                  <input value={errorNoteForm.link} onChange={e => setErrorNoteForm({...errorNoteForm, link: e.target.value})} style={{ ...inputStyle, marginBottom: 0 }} />
+                </div>
               </div>
               
               <button onClick={submitErrorNote} disabled={isLoading} style={{ width: '100%', padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: '#00f3ff', color: '#000', fontWeight: 'bold', cursor: 'pointer', marginTop: '20px', flexShrink: 0 }}>

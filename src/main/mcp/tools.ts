@@ -335,9 +335,9 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
         const cleanText = extractedText.replace(/\n{3,}/g, '\n\n').trim();
 
         // 🌟 바로 여기입니다! 리턴하기 직전에 콘솔을 찍어봅니다. 🌟
-        console.log("\n=== [크롤링 결과 앞부분 200자 확인] ===");
-        console.log(cleanText.substring(0, 200));
-        console.log("======================================\n");
+        // console.log("\n=== [크롤링 결과 앞부분 200자 확인] ===");
+        // console.log(cleanText.substring(0, 200));
+        // console.log("======================================\n");
 
         let maxChars = 6000; 
         if (targetHash && cleanText.includes('[타겟 섹션]')) {

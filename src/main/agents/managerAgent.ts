@@ -7,7 +7,7 @@ export async function processUserMessage(userMessage: string, chatHistory: any[]
   const genAI = new GoogleGenerativeAI("NO_KEY_SECURE_MODE");
   
   const managerModel = genAI.getGenerativeModel({ 
-    model: "gemini-3-pro-preview",
+    model: "gemini-3-flash-preview",
     tools: [{
       functionDeclarations: [{
         name: "delegate_to_worker",
