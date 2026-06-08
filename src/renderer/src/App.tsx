@@ -26,6 +26,9 @@ export default function App() {
   const [errorNoteForm, setErrorNoteForm] = useState({ author: '', question: '', answer: '', link: '' })
   const [isAgentHovered, setIsAgentHovered] = useState(false)
   const [isTransitioning, setIsTransitioning] = useState(false)
+  const [isCheckingConnection, setIsCheckingConnection] = useState(false)
+  const [connectionError, setConnectionError] = useState<string | null>(null)
+  const [isWarmedUp, setIsWarmedUp] = useState(false)
 
   // 채팅창 CSS 드래그용 refs
   const chatRef = useRef<HTMLDivElement>(null)
@@ -43,28 +46,22 @@ export default function App() {
     if (chatArea) chatArea.scrollTo({ top: chatArea.scrollHeight, behavior: 'smooth' });
   }, [messages])
 
-  // 앱 시작 시 저장된 자격증명으로 자동 재인증
+  // 앱 시작 시 프록시 워밍업 완료 여부 폴링
   useEffect(() => {
-    const savedEmail = localStorage.getItem('hive_user_email')
-    const savedPassword = localStorage.getItem('hive_user_password')
-    if (!savedEmail || !savedPassword) {
-      setIsLoginOpen(true)
-      return
-    }
     const electron = (window as any).electron
     if (!electron?.ipcRenderer) return
-    electron.ipcRenderer.invoke('validate-credentials', savedEmail, savedPassword)
-      .then(({ authorized }: { authorized: boolean }) => {
-        if (!authorized) {
-          localStorage.removeItem('hive_user_email')
-          localStorage.removeItem('hive_user_password')
-          setConfig(prev => ({ ...prev, userEmail: '' }))
-          setIsConfiguring(true)
-          setIsLoginOpen(true)
-        }
-      })
-      .catch(() => { /* 네트워크 오류 시 기존 이메일 유지 */ })
+    let cancelled = false
+    const poll = async () => {
+      while (!cancelled) {
+        const { ok } = await electron.ipcRenderer.invoke('ping-proxy')
+        if (ok) { if (!cancelled) setIsWarmedUp(true); return }
+        await new Promise(r => setTimeout(r, 3000))
+      }
+    }
+    poll()
+    return () => { cancelled = true }
   }, [])
+
 
   useEffect(() => {
     setIsAgentHovered(false)
@@ -144,6 +141,42 @@ export default function App() {
     dragOffsetRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top }
   }
 
+  const handleAgentClick = async () => {
+    if (isChatOpen || isTransitioning || isCheckingConnection) return
+    const electron = (window as any).electron
+    if (!electron?.ipcRenderer) {
+      setConnectionError('ELECTRON_IPC_UNAVAILABLE')
+      return
+    }
+    // 이미 워밍업 완료 상태면 ping 생략하고 바로 진행
+    if (isWarmedUp) {
+      const savedEmail = localStorage.getItem('hive_user_email')
+      const savedPassword = localStorage.getItem('hive_user_password')
+      if (!savedEmail || !savedPassword) setIsLoginOpen(true)
+      else toggleChat(true)
+      return
+    }
+    setIsCheckingConnection(true)
+    setConnectionError(null)
+    try {
+      const { ok, error } = await electron.ipcRenderer.invoke('ping-proxy')
+      if (!ok) {
+        setConnectionError(error || 'UNKNOWN_ERROR')
+        return
+      }
+      setIsWarmedUp(true)
+      const savedEmail = localStorage.getItem('hive_user_email')
+      const savedPassword = localStorage.getItem('hive_user_password')
+      if (!savedEmail || !savedPassword) {
+        setIsLoginOpen(true)
+      } else {
+        toggleChat(true)
+      }
+    } finally {
+      setIsCheckingConnection(false)
+    }
+  }
+
   const saveConfigAndConnect = async (newConfig: any) => {
     // 이메일은 로그인 시 이미 검증됨 — config.userEmail 유지
     const updatedConfig = { ...newConfig, userEmail: config.userEmail }
@@ -217,11 +250,30 @@ export default function App() {
 
   return (
     <div className="main-container" style={{ width: '100vw', height: '100vh', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', backgroundColor: 'transparent' }}>
+      {connectionError && (
+        <div className="interactable" style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+          <div style={{ backgroundColor: '#1c1c1e', borderRadius: '16px', padding: '36px 32px', border: '1px solid rgba(255,80,80,0.3)', width: '340px', boxSizing: 'border-box', textAlign: 'center' }}>
+            <div style={{ fontSize: '40px', marginBottom: '12px' }}>⚠️</div>
+            <h3 style={{ color: '#fff', marginBottom: '8px', fontSize: '18px' }}>프록시 서버 연결 실패</h3>
+            <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '13px', marginBottom: '16px' }}>네트워크를 확인하거나 잠시 후 다시 시도해주세요.</p>
+            <div style={{ backgroundColor: 'rgba(255,59,48,0.12)', border: '1px solid rgba(255,59,48,0.3)', borderRadius: '8px', padding: '10px 14px', marginBottom: '20px' }}>
+              <code style={{ color: '#ff6b6b', fontSize: '12px', wordBreak: 'break-all' }}>{connectionError}</code>
+            </div>
+            <button
+              onClick={() => setConnectionError(null)}
+              style={{ width: '100%', padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: 'rgba(255,255,255,0.12)', color: '#fff', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px' }}
+            >
+              닫기
+            </button>
+          </div>
+        </div>
+      )}
       {isLoginOpen && (
         <LoginPopup
           onSuccess={(email) => {
             setConfig(prev => ({ ...prev, userEmail: email }))
             setIsLoginOpen(false)
+            toggleChat(true)
           }}
         />
       )}
@@ -249,12 +301,14 @@ export default function App() {
 
         {/* 에이전트 이미지 */}
         <div
-          onClick={() => !isChatOpen && toggleChat(true)}
-          style={{ width: '140px', height: '140px', position: 'relative', zIndex: 1, cursor: isChatOpen ? 'default' : 'pointer', transition: isTransitioning ? 'none' : 'transform 0.25s ease', marginBottom: '20px', transform: (isAgentHovered && !isTransitioning) ? 'scale(1.15)' : 'scale(1)', pointerEvents: isTransitioning ? 'none' : 'auto' }}
-          onMouseEnter={() => !isChatOpen && !isTransitioning && setIsAgentHovered(true)}
+          onClick={handleAgentClick}
+          style={{ width: '140px', height: '140px', position: 'relative', zIndex: 1, cursor: (isChatOpen || isCheckingConnection) ? 'default' : 'pointer', transition: isTransitioning ? 'none' : 'transform 0.25s ease', marginBottom: '20px', transform: (isAgentHovered && !isTransitioning) ? 'scale(1.15)' : 'scale(1)', pointerEvents: isTransitioning ? 'none' : 'auto' }}
+          onMouseEnter={() => !isChatOpen && !isTransitioning && !isCheckingConnection && setIsAgentHovered(true)}
           onMouseLeave={() => setIsAgentHovered(false)}
         >
-          <img src={techamAgentImg} alt="TECHAM Agent" style={{ width: '100%', height: '100%', objectFit: 'contain', filter: 'drop-shadow(0 10px 15px rgba(0,0,0,0.5))' }} />
+          <img src={techamAgentImg} alt="TECHAM Agent" style={{ width: '100%', height: '100%', objectFit: 'contain', filter: isCheckingConnection ? 'brightness(0.6) drop-shadow(0 10px 15px rgba(0,0,0,0.5))' : 'drop-shadow(0 10px 15px rgba(0,0,0,0.5))', transition: 'filter 0.2s ease' }} />
+          {/* 프록시 연결 상태 점: 주황(워밍업 중) → 초록(준비됨) */}
+          <div style={{ position: 'absolute', bottom: '22px', right: '14px', width: '11px', height: '11px', borderRadius: '50%', backgroundColor: isWarmedUp ? '#34c759' : '#ff9f0a', border: '2px solid rgba(0,0,0,0.4)', boxShadow: isWarmedUp ? '0 0 6px rgba(52,199,89,0.9)' : '0 0 6px rgba(255,159,10,0.7)', animation: isWarmedUp ? 'none' : 'statusPulse 1.4s ease-in-out infinite', zIndex: 2 }} />
         </div>
 
         {/* 앱 종료 버튼: 바(height 112px, right 0) 우측 상단 모서리에 걸침 */}

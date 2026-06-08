@@ -7,7 +7,7 @@ export async function processUserMessage(userMessage: string, chatHistory: any[]
   const genAI = new GoogleGenerativeAI("NO_KEY_SECURE_MODE");
   
   const managerModel = genAI.getGenerativeModel({ 
-    model: "gemini-3-flash-preview",
+    model: "gemini-2.5-flash",
     tools: [{
       functionDeclarations: [{
         name: "delegate_to_worker",
@@ -35,5 +35,7 @@ export async function processUserMessage(userMessage: string, chatHistory: any[]
       functionResponse: { name: 'delegate_to_worker', response: { content: workerReport } }
     }]);
   }
-  return result.response.text();
+  const text = result.response.text();
+  if (!text) return "검색을 완료했지만 응답을 생성하지 못했습니다. 다시 시도해주세요.";
+  return text;
 }

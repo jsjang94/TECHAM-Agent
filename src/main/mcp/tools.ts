@@ -112,19 +112,30 @@ const PROXY_BASE_URL = 'https://techam-proxy.vercel.app';
 // 🌟 [핵심 변경] Atlassian (Jira/Confluence) 공통 토큰 발급 헬퍼 함수
 async function getAtlassianAuth(userEmail: string): Promise<{ authHeader: string, baseUrl: string } | { error: string }> {
   try {
+    console.log(`[Atlassian Auth] 토큰 요청 시작 - userEmail: ${userEmail}`);
     const tokenRes = await fetch(`${PROXY_BASE_URL}/api/proxy`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userEmail, target: 'atlassian-token' })
     });
-    
-    if (!tokenRes.ok) return { error: `Atlassian 인증 정보 획득 실패 (상태 코드: ${tokenRes.status})` };
-    
+
+    console.log(`[Atlassian Auth] 프록시 응답 상태: ${tokenRes.status}`);
+    if (!tokenRes.ok) {
+      const errBody = await tokenRes.text();
+      console.error(`[Atlassian Auth] 프록시 오류 응답 바디: ${errBody}`);
+      return { error: `Atlassian 인증 정보 획득 실패 (상태 코드: ${tokenRes.status})` };
+    }
+
     const data = await tokenRes.json();
+    console.log(`[Atlassian Auth] 프록시 응답 키 목록: ${Object.keys(data).join(', ')}`);
+    console.log(`[Atlassian Auth] baseUrl: ${data.baseUrl}`);
+    console.log(`[Atlassian Auth] authHeader 존재 여부: ${!!data.authHeader}, 앞 20자: ${String(data.authHeader || '').substring(0, 20)}...`);
+
     if (!data.baseUrl) return { error: "사내망 Atlassian 주소가 설정되지 않았습니다." };
-    
+
     return { authHeader: data.authHeader, baseUrl: data.baseUrl };
   } catch (err: any) {
+    console.error(`[Atlassian Auth] 예외 발생: ${err.message}`);
     return { error: `Atlassian 토큰 발급 중 시스템 에러: ${err.message}` };
   }
 }
@@ -145,21 +156,28 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
       if ('error' in authResult) return authResult.error;
       const { authHeader, baseUrl } = authResult;
 
+      console.log(`[Jira Search] 직접 호출 URL: ${baseUrl}/rest/api/3/search/jql`);
+      console.log(`[Jira Search] JQL: ${safeJql}`);
       const res = await fetch(`${baseUrl}/rest/api/3/search/jql`, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Authorization': authHeader,
           'Content-Type': 'application/json',
           'Accept': 'application/json'
         },
-        body: JSON.stringify({ 
-          jql: safeJql, 
-          maxResults: 8, 
-          fields: ["summary", "status", "description", "comment"] 
+        body: JSON.stringify({
+          jql: safeJql,
+          maxResults: 8,
+          fields: ["summary", "status", "description", "comment"]
         })
       });
 
-      if (!res.ok) return `사내 Jira API 직접 통신 실패 (상태 코드: ${res.status})`;
+      console.log(`[Jira Search] 응답 상태: ${res.status}`);
+      if (!res.ok) {
+        const errBody = await res.text();
+        console.error(`[Jira Search] 오류 응답 바디: ${errBody}`);
+        return `사내 Jira API 직접 통신 실패 (상태 코드: ${res.status})`;
+      }
       
       const data = await res.json();
       if (!data.issues || data.issues.length === 0) return `해당 키워드 조합(${args.keywords.join(', ')})으로 검색된 Jira 이슈가 없습니다.`;
@@ -189,16 +207,22 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
       if ('error' in authResult) return authResult.error;
       const { authHeader, baseUrl } = authResult;
 
+      console.log(`[Confluence Search] 직접 호출 URL: ${baseUrl}/wiki/rest/api/content/search`);
       const res = await fetch(`${baseUrl}/wiki/rest/api/content/search?cql=${encodeURIComponent(safeCql)}&limit=6&expand=body.plain`, {
         method: 'GET',
-        headers: { 
+        headers: {
           'Authorization': authHeader,
           'Content-Type': 'application/json',
           'Accept': 'application/json'
         }
       });
-      
-      if (!res.ok) return `사내 Confluence API 직접 통신 실패 (상태 코드: ${res.status})`;
+
+      console.log(`[Confluence Search] 응답 상태: ${res.status}`);
+      if (!res.ok) {
+        const errBody = await res.text();
+        console.error(`[Confluence Search] 오류 응답 바디: ${errBody}`);
+        return `사내 Confluence API 직접 통신 실패 (상태 코드: ${res.status})`;
+      }
       
       const data = await res.json();
       if (!data.results || data.results.length === 0) return `검색된 Confluence 문서가 없습니다.`;

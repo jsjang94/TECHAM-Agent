@@ -39,7 +39,31 @@ function createWindow(): void {
 
 }
 
+// Vercel 콜드 스타트 대비 백그라운드 워밍업 — 앱 시작과 동시에 실행, 응답 기다리지 않음
+const warmupProxy = async () => {
+  const endpoints = ['/api/proxy', '/api/gemini'];
+  for (const ep of endpoints) {
+    (async () => {
+      for (let i = 0; i < 3; i++) {
+        try {
+          await fetch(`${PROXY_BASE_URL}${ep}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ target: 'ping' })
+          });
+          console.log(`[Warmup] ${ep} 워밍업 완료`);
+          return;
+        } catch (err: any) {
+          console.log(`[Warmup] ${ep} 시도 ${i + 1}/3 실패: ${err.cause?.code || err.message}`);
+          if (i < 2) await new Promise(r => setTimeout(r, 3000));
+        }
+      }
+    })();
+  }
+};
+
 app.whenReady().then(() => {
+  warmupProxy();
   app.on('browser-window-created', (_, window) => { optimizer.watchWindowShortcuts(window) })
   createWindow()
 
@@ -55,15 +79,60 @@ app.whenReady().then(() => {
 
   // 이메일+비밀번호 로그인 검증
   ipcMain.handle('validate-credentials', async (_, email: string, password: string) => {
+    const url = `${PROXY_BASE_URL}/api/proxy`;
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY_MS = 2000;
+
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      console.log(`[Login] 시도 ${attempt}/${MAX_RETRIES} - email: ${email}`);
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10초 타임아웃
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userEmail: email.trim(), userPassword: password.trim(), target: 'login' }),
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        const body = await res.text();
+        console.log(`[Login] 응답 상태: ${res.status}, 바디: ${body.substring(0, 200)}`);
+        return { authorized: res.status === 200 };
+      } catch (err: any) {
+        const cause = err.cause ? ` (cause: ${err.cause?.code || err.cause?.message || err.cause})` : '';
+        const errMsg = err.name === 'AbortError' ? '타임아웃(10s)' : err.message;
+        console.error(`[Login] 시도 ${attempt} 실패: ${errMsg}${cause}`);
+        if (attempt < MAX_RETRIES) {
+          console.log(`[Login] ${RETRY_DELAY_MS / 1000}초 후 재시도...`);
+          await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+        } else {
+          console.error(`[Login] 최대 재시도 횟수 초과. 로그인 실패.`);
+          return { authorized: false };
+        }
+      }
+    }
+    return { authorized: false };
+  });
+
+  // 프록시 서버 헬스체크 (콜드 스타트 확인 용도)
+  ipcMain.handle('ping-proxy', async () => {
     try {
-      const res = await fetch(`${PROXY_BASE_URL}/api/proxy`, {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      await fetch(`${PROXY_BASE_URL}/api/proxy`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userEmail: email.trim(), userPassword: password.trim(), target: 'login' })
+        body: JSON.stringify({ target: 'ping' }),
+        signal: controller.signal
       });
-      return { authorized: res.status === 200 };
-    } catch {
-      return { authorized: false };
+      clearTimeout(timeoutId);
+      // 403(미인증)도 서버 살아있는 것 — HTTP 응답 자체가 성공 신호
+      return { ok: true };
+    } catch (err: any) {
+      const cause = err.cause ? `(${err.cause?.code || err.cause?.message || err.cause})` : '';
+      const code = err.name === 'AbortError' ? 'TIMEOUT' : (err.cause?.code || err.message || 'FETCH_FAILED');
+      console.error(`[Ping] 프록시 연결 실패: ${code} ${cause}`);
+      return { ok: false, error: `${code} ${cause}`.trim() };
     }
   });
 
@@ -77,12 +146,24 @@ app.whenReady().then(() => {
     }
   });
 
+  // Atlassian 자격증명 헬퍼
+  const getAtlassianAuth = async (userEmail: string): Promise<{ authHeader: string, baseUrl: string }> => {
+    const res = await fetch(`${PROXY_BASE_URL}/api/proxy`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userEmail, target: 'atlassian-token' })
+    });
+    if (!res.ok) throw new Error(`Atlassian 인증 실패 (${res.status})`);
+    const data = await res.json();
+    if (!data.baseUrl) throw new Error('Atlassian baseUrl 없음');
+    return { authHeader: data.authHeader, baseUrl: data.baseUrl };
+  };
+
   // 🌟 [기존 코드 유지] 오답노트 검색
   ipcMain.handle('search-error-note', async (_, config, userQuestion) => {
     try {
-      const res = await fetch(`${PROXY_BASE_URL}/api/proxy`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userEmail: config.userEmail, target: 'atlassian', method: 'GET', endpoint: '/wiki/rest/api/content/285802836?expand=body.storage' })
+      const { authHeader, baseUrl } = await getAtlassianAuth(config.userEmail);
+      const res = await fetch(`${baseUrl}/wiki/rest/api/content/285802836?expand=body.storage`, {
+        method: 'GET', headers: { 'Authorization': authHeader, 'Accept': 'application/json' }
       });
       const data = await res.json();
       const html = data.body?.storage?.value || '';
@@ -127,11 +208,13 @@ app.whenReady().then(() => {
   // 🌟 [기존 코드 유지] 오답노트 등록
   ipcMain.handle('write-error-note', async (_, config, noteData) => {
     try {
-      const pageId = '285802836'; 
-      // 1. GET 
-      const getRes = await fetch(`${PROXY_BASE_URL}/api/proxy`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userEmail: config.userEmail, target: 'atlassian', method: 'GET', endpoint: `/wiki/rest/api/content/${pageId}?expand=body.storage,version,space` })
+      const pageId = '285802836';
+      const { authHeader, baseUrl } = await getAtlassianAuth(config.userEmail);
+      const confluenceHeaders = { 'Authorization': authHeader, 'Content-Type': 'application/json', 'Accept': 'application/json' };
+
+      // 1. GET
+      const getRes = await fetch(`${baseUrl}/wiki/rest/api/content/${pageId}?expand=body.storage,version,space`, {
+        method: 'GET', headers: confluenceHeaders
       });
       if (!getRes.ok) throw new Error('페이지를 읽어오지 못했습니다.');
       const pageData = await getRes.json();
@@ -152,16 +235,13 @@ app.whenReady().then(() => {
         storageHtml += `<table><tbody><tr><th>등록자</th><th>질문</th><th>올바른 답변</th><th>참고 링크</th></tr>${newRow}</tbody></table>`;
       }
 
-      const updateRes = await fetch(`${PROXY_BASE_URL}/api/proxy`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+      const updateRes = await fetch(`${baseUrl}/wiki/rest/api/content/${pageId}`, {
+        method: 'PUT', headers: confluenceHeaders,
         body: JSON.stringify({
-          userEmail: config.userEmail, target: 'atlassian', method: 'PUT', endpoint: `/wiki/rest/api/content/${pageId}`,
-          body: {
-            id: pageId, type: 'page', title: pageData.title,
-            space: { key: pageData.space?.key || '~jsjang' }, 
-            body: { storage: { value: storageHtml, representation: 'storage' } },
-            version: { number: currentVersion + 1 }
-          }
+          id: pageId, type: 'page', title: pageData.title,
+          space: { key: pageData.space?.key || '~jsjang' },
+          body: { storage: { value: storageHtml, representation: 'storage' } },
+          version: { number: currentVersion + 1 }
         })
       });
 
