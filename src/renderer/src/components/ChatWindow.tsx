@@ -3,7 +3,6 @@ import React, { useState } from 'react'
 import '../assets/ChatWindow.css'
 
 interface ChatWindowProps {
-  isChatOpen: boolean
   toggleChat: (open: boolean) => void
   config: any
   isConfiguring: boolean
@@ -24,15 +23,13 @@ interface ChatWindowProps {
 }
 
 export default function ChatWindow({
-  isChatOpen, toggleChat, config, isConfiguring, setIsConfiguring, saveConfigAndConnect,
+  toggleChat, config, isConfiguring, setIsConfiguring, saveConfigAndConnect,
   messages, isLoading, inputText, setInputText, handleSend, handleKeyDown,
   isErrorNoteOpen, setIsErrorNoteOpen, errorNoteForm, setErrorNoteForm, submitErrorNote,
   onTitlebarMouseDown
 }: ChatWindowProps) {
 
   const [form, setForm] = useState(config)
-  const [activeTab, setActiveTab] = useState('gemini')
-  const [atlassianSubTab, setAtlassianSubTab] = useState('common')
 
   const inputStyle = { width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.2)', backgroundColor: 'rgba(0,0,0,0.2)', color: '#fff', marginBottom: '10px', outline: 'none' }
 

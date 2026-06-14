@@ -282,7 +282,7 @@ export default function App() {
             <h3 style={{ color: '#fff', marginBottom: '8px', fontSize: '18px' }}>프록시 서버 연결 실패</h3>
             <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '13px', marginBottom: '16px' }}>네트워크를 확인하거나 잠시 후 다시 시도해주세요.</p>
             <div style={{ backgroundColor: 'rgba(255,59,48,0.12)', border: '1px solid rgba(255,59,48,0.3)', borderRadius: '8px', padding: '10px 14px', marginBottom: '20px' }}>
-              <code style={{ color: '#ff6b6b', fontSize: '12px', wordBreak: 'break-all' }}>{connectionError}</code>
+              <code style={{ color: '#ff6b6b', fontSize: '13px', wordBreak: 'break-all' }}>{connectionError}</code>
             </div>
             <button
               onClick={() => setConnectionError(null)}
@@ -309,7 +309,7 @@ export default function App() {
           style={{ position: 'fixed', left: chatPosRef.current.left, top: chatPosRef.current.top, width: CHAT_W, height: CHAT_H, zIndex: 10, overflow: 'hidden', borderRadius: '12px' }}
         >
           <ChatWindow
-            isChatOpen={isChatOpen} toggleChat={toggleChat} config={config}
+            toggleChat={toggleChat} config={config}
             isConfiguring={isConfiguring} setIsConfiguring={setIsConfiguring} saveConfigAndConnect={saveConfigAndConnect}
             messages={messages as any} isLoading={isLoading} inputText={inputText} setInputText={setInputText}
             handleSend={handleSend} handleKeyDown={handleKeyDown}
@@ -325,7 +325,7 @@ export default function App() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px 14px', backgroundColor: 'rgba(100,100,100,0.60)', borderRadius: '8px', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.25)', boxShadow: '0 4px 20px rgba(0,0,0,0.25)', marginBottom: '16px', zIndex: 1 }}>
           {/* 프록시 연결 상태 점: 주황(워밍업 중) → 초록(준비됨) */}
           <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: isWarmedUp ? '#34c759' : '#ff9f0a', boxShadow: isWarmedUp ? '0 0 5px rgba(52,199,89,0.95)' : '0 0 5px rgba(255,159,10,0.85)', animation: isWarmedUp ? 'none' : 'statusPulse 1.4s ease-in-out infinite', flexShrink: 0 }} />
-          <span style={{ fontSize: '12px', fontWeight: '400', color: 'rgba(255,255,255,0.92)', whiteSpace: 'nowrap', letterSpacing: '-0.2px' }}>
+          <span style={{ fontSize: '13px', fontWeight: '400', color: 'rgba(255,255,255,0.92)', whiteSpace: 'nowrap', letterSpacing: '-0.2px' }}>
             {isWarmedUp ? '에이전트 활성화 성공!' : ['에이전트 활성화 중..', '에이전트 활성화 중…', '에이전트 활성화 중….'][warmupDotIndex]}
           </span>
         </div>
