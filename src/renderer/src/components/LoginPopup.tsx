@@ -2,9 +2,11 @@ import React, { useState } from 'react'
 
 interface LoginPopupProps {
   onSuccess: (email: string) => void
+  onLoginStart?: () => void
+  onLoginFail?: () => void
 }
 
-export default function LoginPopup({ onSuccess }: LoginPopupProps) {
+export default function LoginPopup({ onSuccess, onLoginStart, onLoginFail }: LoginPopupProps) {
   const [email, setEmail] = useState(localStorage.getItem('hive_user_email') || '')
   const [password, setPassword] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -17,10 +19,12 @@ export default function LoginPopup({ onSuccess }: LoginPopupProps) {
     }
     setIsLoading(true)
     setError('')
+    onLoginStart?.()
     try {
       const electron = (window as any).electron
       if (!electron?.ipcRenderer) {
         setError('시스템 오류가 발생했습니다.')
+        onLoginFail?.()
         return
       }
       const { authorized } = await electron.ipcRenderer.invoke('validate-credentials', email.trim(), password.trim())
@@ -30,9 +34,11 @@ export default function LoginPopup({ onSuccess }: LoginPopupProps) {
         onSuccess(email.trim())
       } else {
         setError('이메일 또는 비밀번호가 올바르지 않습니다.')
+        onLoginFail?.()
       }
     } catch {
       setError('서버 연결에 실패했습니다.')
+      onLoginFail?.()
     } finally {
       setIsLoading(false)
     }

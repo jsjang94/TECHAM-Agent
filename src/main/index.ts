@@ -80,7 +80,7 @@ app.whenReady().then(() => {
   // 이메일+비밀번호 로그인 검증
   ipcMain.handle('validate-credentials', async (_, email: string, password: string) => {
     const url = `${PROXY_BASE_URL}/api/proxy`;
-    const MAX_RETRIES = 3;
+    const MAX_RETRIES = 5;
     const RETRY_DELAY_MS = 2000;
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {

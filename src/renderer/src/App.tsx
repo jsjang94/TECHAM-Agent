@@ -31,6 +31,10 @@ export default function App() {
   const [isWarmedUp, setIsWarmedUp] = useState(false)
   const [isWarmupFailed, setIsWarmupFailed] = useState(false)
   const [warmupDotIndex, setWarmupDotIndex] = useState(0)
+  const [isLoggingIn, setIsLoggingIn] = useState(false)
+  const [isLoginRequesting, setIsLoginRequesting] = useState(false)
+  const [isLoginSuccess, setIsLoginSuccess] = useState(false)
+  const [loginDotIndex, setLoginDotIndex] = useState(0)
 
   // 채팅창 CSS 드래그용 refs
   const chatRef = useRef<HTMLDivElement>(null)
@@ -55,6 +59,13 @@ export default function App() {
     return () => clearInterval(id)
   }, [isWarmedUp, isWarmupFailed])
 
+  // 로그인 중 점 애니메이션 (서버 통신 중일 때만)
+  useEffect(() => {
+    if (!isLoginRequesting) return
+    const id = setInterval(() => setLoginDotIndex(i => (i + 1) % 3), 600)
+    return () => clearInterval(id)
+  }, [isLoginRequesting])
+
   // 앱 시작 시 프록시 워밍업 완료 여부 폴링
   useEffect(() => {
     const electron = (window as any).electron
@@ -75,39 +86,9 @@ export default function App() {
 
   useEffect(() => {
     setIsAgentHovered(false)
-    if (isChatOpen) {
-      const savedEmail = localStorage.getItem('hive_user_email')
-      const savedPassword = localStorage.getItem('hive_user_password')
-      if (savedEmail && savedPassword) {
-        const electron = (window as any).electron
-        if (electron?.ipcRenderer) {
-          electron.ipcRenderer.invoke('validate-credentials', savedEmail, savedPassword)
-            .then(({ authorized }: { authorized: boolean }) => {
-              if (authorized) {
-                // 매번 명시적으로 userEmail 세팅 → stale closure 문제 방지
-                setConfig(prev => ({ ...prev, userEmail: savedEmail }))
-              } else {
-                localStorage.removeItem('hive_user_email')
-                localStorage.removeItem('hive_user_password')
-                setConfig(prev => ({ ...prev, userEmail: '' }))
-                setIsLoginOpen(true)
-              }
-            })
-            .catch(() => {
-              // 네트워크 오류 시 localStorage 값으로 유지
-              setConfig(prev => ({ ...prev, userEmail: savedEmail }))
-            })
-        } else {
-          setConfig(prev => ({ ...prev, userEmail: savedEmail }))
-        }
-      } else {
-        setIsLoginOpen(true)
-      }
-      // 저장된 채팅창 위치 복원
-      if (chatRef.current) {
-        chatRef.current.style.left = chatPosRef.current.left + 'px'
-        chatRef.current.style.top = chatPosRef.current.top + 'px'
-      }
+    if (isChatOpen && chatRef.current) {
+      chatRef.current.style.left = chatPosRef.current.left + 'px'
+      chatRef.current.style.top = chatPosRef.current.top + 'px'
     }
   }, [isChatOpen])
 
@@ -158,32 +139,65 @@ export default function App() {
       setConnectionError('ELECTRON_IPC_UNAVAILABLE')
       return
     }
-    // 이미 워밍업 완료 상태면 ping 생략하고 바로 진행
-    if (isWarmedUp) {
-      const savedEmail = localStorage.getItem('hive_user_email')
-      const savedPassword = localStorage.getItem('hive_user_password')
-      if (!savedEmail || !savedPassword) setIsLoginOpen(true)
-      else toggleChat(true)
-      return
-    }
+
     setIsCheckingConnection(true)
+    setIsWarmedUp(false)
+    setIsWarmupFailed(false)
+    setIsLoginSuccess(false)
+    setIsLoggingIn(false)
+    setIsLoginRequesting(false)
     setConnectionError(null)
+
+    // 로그인 팝업을 띄운 채로 반환하는 경우 finally에서 isLoggingIn을 초기화하지 않음
+    let loginPopupShown = false
+
     try {
-      const { ok, error } = await electron.ipcRenderer.invoke('ping-proxy')
-      if (!ok) {
-        setConnectionError(error || 'UNKNOWN_ERROR')
-        return
+      // Step 1: 웜업 최대 10회
+      let warmedUp = false
+      for (let i = 0; i < 10; i++) {
+        const { ok } = await electron.ipcRenderer.invoke('ping-proxy')
+        if (ok) { warmedUp = true; break }
+        await new Promise(r => setTimeout(r, 3000))
       }
+      if (!warmedUp) { setIsWarmupFailed(true); return }
       setIsWarmedUp(true)
+      await new Promise(r => setTimeout(r, 700)) // "에이전트 활성화 성공!" 잠깐 표시
+
+      // Step 2: 로그인 최대 5회
       const savedEmail = localStorage.getItem('hive_user_email')
       const savedPassword = localStorage.getItem('hive_user_password')
       if (!savedEmail || !savedPassword) {
+        loginPopupShown = true
+        setIsLoggingIn(true)
         setIsLoginOpen(true)
-      } else {
-        toggleChat(true)
+        return
       }
+
+      setIsLoggingIn(true)
+      setIsLoginRequesting(true)
+      const { authorized } = await electron.ipcRenderer.invoke('validate-credentials', savedEmail, savedPassword)
+      setIsLoginRequesting(false)
+
+      if (!authorized) {
+        localStorage.removeItem('hive_user_email')
+        localStorage.removeItem('hive_user_password')
+        setConfig(prev => ({ ...prev, userEmail: '' }))
+        loginPopupShown = true
+        setIsLoginOpen(true)
+        return
+      }
+      setIsLoggingIn(false)
+
+      setConfig(prev => ({ ...prev, userEmail: savedEmail }))
+      setIsLoginSuccess(true)
+      await new Promise(r => setTimeout(r, 900))
+      setIsLoginSuccess(false)
+      toggleChat(true)
+
     } finally {
       setIsCheckingConnection(false)
+      setIsLoginRequesting(false)
+      if (!loginPopupShown) setIsLoggingIn(false)
     }
   }
 
@@ -295,9 +309,16 @@ export default function App() {
       )}
       {isLoginOpen && (
         <LoginPopup
-          onSuccess={(email) => {
-            setConfig(prev => ({ ...prev, userEmail: email }))
+          onLoginStart={() => setIsLoginRequesting(true)}
+          onLoginFail={() => setIsLoginRequesting(false)}
+          onSuccess={async (email) => {
+            setIsLoginRequesting(false)
+            setIsLoggingIn(false)
             setIsLoginOpen(false)
+            setConfig(prev => ({ ...prev, userEmail: email }))
+            setIsLoginSuccess(true)
+            await new Promise(r => setTimeout(r, 900))
+            setIsLoginSuccess(false)
             toggleChat(true)
           }}
         />
@@ -324,9 +345,14 @@ export default function App() {
         {/* 서버 상태 플로팅 바 */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px 14px', backgroundColor: 'rgba(100,100,100,0.60)', borderRadius: '8px', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.25)', boxShadow: '0 4px 20px rgba(0,0,0,0.25)', marginBottom: '16px', zIndex: 1 }}>
           {/* 프록시 연결 상태 점: 주황(워밍업 중) → 초록(준비됨) */}
-          <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: isWarmedUp ? '#34c759' : isWarmupFailed ? '#ff3b30' : '#ff9f0a', boxShadow: isWarmedUp ? '0 0 5px rgba(52,199,89,0.95)' : isWarmupFailed ? '0 0 5px rgba(255,59,48,0.95)' : '0 0 5px rgba(255,159,10,0.85)', animation: (isWarmedUp || isWarmupFailed) ? 'none' : 'statusPulse 1.4s ease-in-out infinite', flexShrink: 0 }} />
+          <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: isWarmupFailed ? '#ff3b30' : (isWarmedUp && !isLoggingIn) ? '#34c759' : '#ff9f0a', boxShadow: isWarmupFailed ? '0 0 5px rgba(255,59,48,0.95)' : (isWarmedUp && !isLoggingIn) ? '0 0 5px rgba(52,199,89,0.95)' : '0 0 5px rgba(255,159,10,0.85)', animation: (!isWarmedUp && !isWarmupFailed) || isLoginRequesting ? 'statusPulse 1.4s ease-in-out infinite' : 'none', flexShrink: 0 }} />
           <span style={{ fontSize: '13px', fontWeight: '400', color: 'rgba(255,255,255,0.92)', whiteSpace: 'nowrap', letterSpacing: '-0.2px' }}>
-            {isWarmedUp ? '에이전트 활성화 성공!' : isWarmupFailed ? '에이전트 활성화 실패' : ['에이전트 활성화 중..', '에이전트 활성화 중…', '에이전트 활성화 중….'][warmupDotIndex]}
+            {isChatOpen ? '명령 대기 중'
+              : isLoginSuccess ? '로그인 성공!'
+              : isLoggingIn ? ['로그인 중..', '로그인 중…', '로그인 중….'][loginDotIndex]
+              : isWarmedUp ? '에이전트 활성화 성공!'
+              : isWarmupFailed ? '에이전트 활성화 실패'
+              : ['에이전트 활성화 중..', '에이전트 활성화 중…', '에이전트 활성화 중….'][warmupDotIndex]}
           </span>
         </div>
 
