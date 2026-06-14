@@ -43,8 +43,8 @@ export default function LoginPopup({ onSuccess }: LoginPopupProps) {
   }
 
   return (
-    <div className="interactable" style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
-      <div style={{ backgroundColor: '#1c1c1e', borderRadius: '16px', padding: '36px 32px', border: '1px solid rgba(255,255,255,0.12)', width: '320px', boxSizing: 'border-box' }}>
+    <div className="interactable" style={{ position: 'fixed', left: 'calc(50% - 160px)', bottom: '260px', width: '320px', backgroundColor: '#1c1c1e', borderRadius: '16px', padding: '36px 32px', border: '1px solid rgba(255,255,255,0.12)', boxSizing: 'border-box', zIndex: 9999, boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}>
+      <div>
         <div style={{ textAlign: 'center', marginBottom: '28px' }}>
           <div style={{ fontSize: '40px', marginBottom: '12px' }}>🔐</div>
           <h3 style={{ color: '#fff', marginBottom: '6px', fontSize: '18px' }}>TECHAM Agent</h3>

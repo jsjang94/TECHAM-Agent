@@ -29,6 +29,8 @@ export default function App() {
   const [isCheckingConnection, setIsCheckingConnection] = useState(false)
   const [connectionError, setConnectionError] = useState<string | null>(null)
   const [isWarmedUp, setIsWarmedUp] = useState(false)
+  const [isWarmupFailed, setIsWarmupFailed] = useState(false)
+  const [warmupDotIndex, setWarmupDotIndex] = useState(0)
 
   // 채팅창 CSS 드래그용 refs
   const chatRef = useRef<HTMLDivElement>(null)
@@ -38,7 +40,7 @@ export default function App() {
   const CHAT_H = Math.floor(window.screen.availHeight * 0.70)
   const chatPosRef = useRef({
     left: Math.floor((window.screen.availWidth - CHAT_W) / 2),
-    top: Math.floor(window.screen.availHeight - 170 - 24 - CHAT_H), // 에이전트(170px) 위 24px 여유
+    top: Math.floor(window.screen.availHeight - 170 - 70 - CHAT_H), // 에이전트(170px) 위 60px 여유
   })
 
   useEffect(() => {
@@ -46,17 +48,25 @@ export default function App() {
     if (chatArea) chatArea.scrollTo({ top: chatArea.scrollHeight, behavior: 'smooth' });
   }, [messages])
 
+  // 웜업 중 점 애니메이션 (0→1→2 순환)
+  useEffect(() => {
+    if (isWarmedUp || isWarmupFailed) return
+    const id = setInterval(() => setWarmupDotIndex(i => (i + 1) % 3), 600)
+    return () => clearInterval(id)
+  }, [isWarmedUp, isWarmupFailed])
+
   // 앱 시작 시 프록시 워밍업 완료 여부 폴링
   useEffect(() => {
     const electron = (window as any).electron
     if (!electron?.ipcRenderer) return
     let cancelled = false
     const poll = async () => {
-      while (!cancelled) {
+      for (let i = 0; i < 10 && !cancelled; i++) {
         const { ok } = await electron.ipcRenderer.invoke('ping-proxy')
         if (ok) { if (!cancelled) setIsWarmedUp(true); return }
         await new Promise(r => setTimeout(r, 3000))
       }
+      if (!cancelled) setIsWarmupFailed(true)
     }
     poll()
     return () => { cancelled = true }
@@ -250,6 +260,21 @@ export default function App() {
 
   return (
     <div className="main-container" style={{ width: '100vw', height: '100vh', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', backgroundColor: 'transparent' }}>
+      {isWarmupFailed && (
+        <div className="interactable" style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+          <div style={{ backgroundColor: '#1c1c1e', borderRadius: '16px', padding: '36px 32px', border: '1px solid rgba(255,80,80,0.3)', width: '340px', boxSizing: 'border-box', textAlign: 'center' }}>
+            <div style={{ fontSize: '40px', marginBottom: '12px' }}>⚠️</div>
+            <h3 style={{ color: '#fff', marginBottom: '8px', fontSize: '18px' }}>에이전트 활성화 실패</h3>
+            <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '14px', marginBottom: '20px' }}>Vercel 서버가 활성화되지 않습니다</p>
+            <button
+              onClick={() => setIsWarmupFailed(false)}
+              style={{ width: '100%', padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: 'rgba(255,255,255,0.12)', color: '#fff', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px' }}
+            >
+              닫기
+            </button>
+          </div>
+        </div>
+      )}
       {connectionError && (
         <div className="interactable" style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
           <div style={{ backgroundColor: '#1c1c1e', borderRadius: '16px', padding: '36px 32px', border: '1px solid rgba(255,80,80,0.3)', width: '340px', boxSizing: 'border-box', textAlign: 'center' }}>
@@ -295,34 +320,40 @@ export default function App() {
         </div>
       )}
       {/* position: fixed 로 flex 레이아웃에서 완전히 분리 → 윈도우 리사이즈 중 움직임 없음 */}
-      <div className="interactable" style={{ position: 'fixed', bottom: 0, left: 'calc(50% - 120px)', width: '240px', height: '170px', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', zIndex: 20 }}>
-        {/* 플로팅 도크 바: 가로 전체, 높이 = 에이전트(140px)의 80% = 112px */}
-        <div style={{ position: 'absolute', bottom: 10, left: 0, right: 0, height: '112px', backgroundColor: 'rgba(255,255,255,0.6)', borderRadius: '16px', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', boxShadow: '0 4px 20px rgba(0,0,0,0.22)', zIndex: 0 }} />
+      <div className="interactable" style={{ position: 'fixed', bottom: 0, left: 'calc(50% - 120px)', width: '240px', height: '222px', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', zIndex: 20 }}>
+        {/* 서버 상태 플로팅 바 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px 14px', backgroundColor: 'rgba(100,100,100,0.60)', borderRadius: '8px', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.25)', boxShadow: '0 4px 20px rgba(0,0,0,0.25)', marginBottom: '16px', zIndex: 1 }}>
+          {/* 프록시 연결 상태 점: 주황(워밍업 중) → 초록(준비됨) */}
+          <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: isWarmedUp ? '#34c759' : '#ff9f0a', boxShadow: isWarmedUp ? '0 0 5px rgba(52,199,89,0.95)' : '0 0 5px rgba(255,159,10,0.85)', animation: isWarmedUp ? 'none' : 'statusPulse 1.4s ease-in-out infinite', flexShrink: 0 }} />
+          <span style={{ fontSize: '12px', fontWeight: '400', color: 'rgba(255,255,255,0.92)', whiteSpace: 'nowrap', letterSpacing: '-0.2px' }}>
+            {isWarmedUp ? '에이전트 활성화 성공!' : ['에이전트 활성화 중..', '에이전트 활성화 중…', '에이전트 활성화 중….'][warmupDotIndex]}
+          </span>
+        </div>
+
+        {/* 에이전트 뒤 반투명 배경 바 */}
+        <div style={{ position: 'absolute', bottom: '14px', left: '-10px', right: '-10px', height: '105px', backgroundColor: 'rgba(130,130,130,0.42)', borderRadius: '16px', backdropFilter: 'blur(18px)', WebkitBackdropFilter: 'blur(18px)', border: '1px solid rgba(255,255,255,0.22)', boxShadow: '0 4px 18px rgba(0,0,0,0.18)', zIndex: 0 }} />
 
         {/* 에이전트 이미지 */}
         <div
           onClick={handleAgentClick}
-          style={{ width: '140px', height: '140px', position: 'relative', zIndex: 1, cursor: (isChatOpen || isCheckingConnection) ? 'default' : 'pointer', transition: isTransitioning ? 'none' : 'transform 0.25s ease', marginBottom: '20px', transform: (isAgentHovered && !isTransitioning) ? 'scale(1.15)' : 'scale(1)', pointerEvents: isTransitioning ? 'none' : 'auto' }}
+          style={{ width: '140px', height: '140px', position: 'relative', zIndex: 1, cursor: (isChatOpen || isCheckingConnection) ? 'default' : 'pointer', transition: isTransitioning ? 'none' : 'transform 0.25s ease', marginBottom: '25px', transform: (isAgentHovered && !isTransitioning) ? 'scale(1.15)' : 'scale(1)', pointerEvents: isTransitioning ? 'none' : 'auto' }}
           onMouseEnter={() => !isChatOpen && !isTransitioning && !isCheckingConnection && setIsAgentHovered(true)}
           onMouseLeave={() => setIsAgentHovered(false)}
         >
           <img src={techamAgentImg} alt="TECHAM Agent" style={{ width: '100%', height: '100%', objectFit: 'contain', filter: isCheckingConnection ? 'brightness(0.6) drop-shadow(0 10px 15px rgba(0,0,0,0.5))' : 'drop-shadow(0 10px 15px rgba(0,0,0,0.5))', transition: 'filter 0.2s ease' }} />
-          {/* 프록시 연결 상태 점: 주황(워밍업 중) → 초록(준비됨) */}
-          <div style={{ position: 'absolute', bottom: '22px', right: '14px', width: '11px', height: '11px', borderRadius: '50%', backgroundColor: isWarmedUp ? '#34c759' : '#ff9f0a', border: '2px solid rgba(0,0,0,0.4)', boxShadow: isWarmedUp ? '0 0 6px rgba(52,199,89,0.9)' : '0 0 6px rgba(255,159,10,0.7)', animation: isWarmedUp ? 'none' : 'statusPulse 1.4s ease-in-out infinite', zIndex: 2 }} />
         </div>
 
-        {/* 앱 종료 버튼: 바(height 112px, right 0) 우측 상단 모서리에 걸침 */}
-        {/* center Y = bottom 112px → bottom: 112-14=98px, center X = right 0 → right: 8px (약간 안쪽) */}
+        {/* 앱 종료 버튼 */}
         <button
           onClick={() => {
             const w = window as any
             if (w.api?.quitApp) w.api.quitApp()
             else w.electron?.ipcRenderer?.send('quit-app')
           }}
-          onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.2)'; e.currentTarget.style.backgroundColor = 'rgba(80,80,80,0.75)' }}
-          onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.backgroundColor = 'rgba(50,50,50,0.55)' }}
+          onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.12)'; e.currentTarget.style.backgroundColor = 'rgba(60,60,60,0.80)' }}
+          onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.backgroundColor = 'rgba(35,35,35,0.65)' }}
           title="앱 종료"
-          style={{ position: 'absolute', bottom: '108px', right: '6px', width: '28px', height: '28px', borderRadius: '50%', border: 'none', backgroundColor: 'rgba(50,50,50,0.55)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', boxShadow: '0 2px 8px rgba(0,0,0,0.3)', color: 'rgba(255,255,255,0.9)', cursor: 'pointer', fontSize: '20px', fontWeight: '300', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2, lineHeight: '1', pointerEvents: 'auto', transition: 'transform 0.15s ease, background-color 0.15s ease' }}
+          style={{ position: 'absolute', bottom: '105px', right: '5px', width: '34px', height: '34px', borderRadius: '50%', border: '1px solid rgba(255,255,255,0.13)', backgroundColor: 'rgba(35,35,35,0.65)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)', boxShadow: '0 4px 14px rgba(0,0,0,0.45)', color: 'rgba(255,255,255,0.82)', cursor: 'pointer', fontSize: '19px', fontWeight: '300', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2, lineHeight: '1', pointerEvents: 'auto', transition: 'transform 0.15s ease, background-color 0.15s ease' }}
         >
           ×
         </button>
