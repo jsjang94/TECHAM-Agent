@@ -324,9 +324,9 @@ export default function App() {
         {/* 서버 상태 플로팅 바 */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px 14px', backgroundColor: 'rgba(100,100,100,0.60)', borderRadius: '8px', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.25)', boxShadow: '0 4px 20px rgba(0,0,0,0.25)', marginBottom: '16px', zIndex: 1 }}>
           {/* 프록시 연결 상태 점: 주황(워밍업 중) → 초록(준비됨) */}
-          <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: isWarmedUp ? '#34c759' : '#ff9f0a', boxShadow: isWarmedUp ? '0 0 5px rgba(52,199,89,0.95)' : '0 0 5px rgba(255,159,10,0.85)', animation: isWarmedUp ? 'none' : 'statusPulse 1.4s ease-in-out infinite', flexShrink: 0 }} />
+          <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: isWarmedUp ? '#34c759' : isWarmupFailed ? '#ff3b30' : '#ff9f0a', boxShadow: isWarmedUp ? '0 0 5px rgba(52,199,89,0.95)' : isWarmupFailed ? '0 0 5px rgba(255,59,48,0.95)' : '0 0 5px rgba(255,159,10,0.85)', animation: (isWarmedUp || isWarmupFailed) ? 'none' : 'statusPulse 1.4s ease-in-out infinite', flexShrink: 0 }} />
           <span style={{ fontSize: '13px', fontWeight: '400', color: 'rgba(255,255,255,0.92)', whiteSpace: 'nowrap', letterSpacing: '-0.2px' }}>
-            {isWarmedUp ? '에이전트 활성화 성공!' : ['에이전트 활성화 중..', '에이전트 활성화 중…', '에이전트 활성화 중….'][warmupDotIndex]}
+            {isWarmedUp ? '에이전트 활성화 성공!' : isWarmupFailed ? '에이전트 활성화 실패' : ['에이전트 활성화 중..', '에이전트 활성화 중…', '에이전트 활성화 중….'][warmupDotIndex]}
           </span>
         </div>
 
