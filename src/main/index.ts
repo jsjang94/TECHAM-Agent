@@ -1,10 +1,12 @@
 // src/main/index.ts
-import { app, BrowserWindow, screen, ipcMain } from 'electron'
+import { app, BrowserWindow, screen, ipcMain, net } from 'electron'
 import { join } from 'path'
 import { optimizer, is } from '@electron-toolkit/utils'
 import { processUserMessage } from './agents/managerAgent'
 
 const PROXY_BASE_URL = 'https://techam-proxy.vercel.app';
+let keepAliveInterval: ReturnType<typeof setInterval> | null = null;
+let keepAliveRetries = 0;
 
 function createWindow(): void {
   const primaryDisplay = screen.getPrimaryDisplay()
@@ -39,35 +41,13 @@ function createWindow(): void {
 
 }
 
-// Vercel 콜드 스타트 대비 백그라운드 워밍업 — 앱 시작과 동시에 실행, 응답 기다리지 않음
-const warmupProxy = async () => {
-  const endpoints = ['/api/proxy', '/api/gemini'];
-  for (const ep of endpoints) {
-    (async () => {
-      for (let i = 0; i < 3; i++) {
-        try {
-          await fetch(`${PROXY_BASE_URL}${ep}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ target: 'ping' })
-          });
-          console.log(`[Warmup] ${ep} 워밍업 완료`);
-          return;
-        } catch (err: any) {
-          console.log(`[Warmup] ${ep} 시도 ${i + 1}/3 실패: ${err.cause?.code || err.message}`);
-          if (i < 2) await new Promise(r => setTimeout(r, 3000));
-        }
-      }
-    })();
-  }
-};
 
 app.whenReady().then(() => {
-  warmupProxy();
   app.on('browser-window-created', (_, window) => { optimizer.watchWindowShortcuts(window) })
   createWindow()
 
   ipcMain.on('quit-app', () => {
+    if (keepAliveInterval) clearInterval(keepAliveInterval);
     app.exit(0)
   })
 
@@ -88,7 +68,7 @@ app.whenReady().then(() => {
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 10000); // 10초 타임아웃
-        const res = await fetch(url, {
+        const res = await net.fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ userEmail: email.trim(), userPassword: password.trim(), target: 'login' }),
@@ -114,26 +94,73 @@ app.whenReady().then(() => {
     return { authorized: false };
   });
 
-  // 프록시 서버 헬스체크 (콜드 스타트 확인 용도)
-  ipcMain.handle('ping-proxy', async () => {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000);
-      await fetch(`${PROXY_BASE_URL}/api/proxy`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target: 'ping' }),
-        signal: controller.signal
-      });
-      clearTimeout(timeoutId);
-      // 403(미인증)도 서버 살아있는 것 — HTTP 응답 자체가 성공 신호
-      return { ok: true };
-    } catch (err: any) {
-      const cause = err.cause ? `(${err.cause?.code || err.cause?.message || err.cause})` : '';
-      const code = err.name === 'AbortError' ? 'TIMEOUT' : (err.cause?.code || err.message || 'FETCH_FAILED');
-      console.error(`[Ping] 프록시 연결 실패: ${code} ${cause}`);
-      return { ok: false, error: `${code} ${cause}`.trim() };
+  // Vercel 웜업 (최대 10회, 두 엔드포인트 병렬 핑, 어댑티브 타임아웃)
+  ipcMain.handle('warmup-proxy', async () => {
+    // 초반엔 짧게(콜드스타트 트리거 후 빠른 재시도), 후반엔 길게(긴 콜드스타트 대기)
+    const MAX_ATTEMPTS = 30;
+    // 초반: 짧게 반복해서 서버 깨우기, 후반: 길게 대기해서 콜드스타트 기다리기
+    const getTimeoutMs = (attempt: number) => attempt < 5 ? 5000 : attempt < 15 ? 10000 : 20000;
+
+    const ping = async (endpoint: string, timeoutMs: number): Promise<void> => {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+      try {
+        await net.fetch(`${PROXY_BASE_URL}${endpoint}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ target: 'ping' }),
+          signal: ctrl.signal
+        });
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+
+    for (let i = 0; i < MAX_ATTEMPTS; i++) {
+      const timeoutMs = getTimeoutMs(i);
+      console.log(`[Warmup] 시도 (${i + 1}/${MAX_ATTEMPTS}) - 타임아웃: ${timeoutMs / 1000}s`);
+      try {
+        // 두 엔드포인트 동시에 핑 — 둘 다 응답해야 성공
+        await Promise.all([ping('/api/proxy', timeoutMs), ping('/api/gemini', timeoutMs)]);
+        console.log(`[Warmup] 성공 (${i + 1}번째 시도)`);
+        // 기존 인터벌 초기화 후 4분 간격 keep-alive 시작
+        if (keepAliveInterval) clearInterval(keepAliveInterval);
+        keepAliveRetries = 0;
+        const keepAlivePing = () => {
+          console.log('[KeepAlive] 서버 유지 핑...');
+          const p = (endpoint: string) => net.fetch(`${PROXY_BASE_URL}${endpoint}`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target: 'ping' })
+          });
+          Promise.allSettled([p('/api/proxy'), p('/api/gemini')]).then(([proxy, gemini]) => {
+            const proxyOk = proxy.status === 'fulfilled';
+            const geminiOk = gemini.status === 'fulfilled';
+            console.log(`[KeepAlive] /api/proxy ${proxyOk ? 'OK' : '실패'}`);
+            console.log(`[KeepAlive] /api/gemini ${geminiOk ? 'OK' : '실패'}`);
+            if (!proxyOk && !geminiOk) {
+              keepAliveRetries++;
+              if (keepAliveRetries >= 10) {
+                console.error('[KeepAlive] 10회 재시도 실패 — 네트워크 에러 알림');
+                keepAliveRetries = 0;
+                BrowserWindow.getAllWindows()[0]?.webContents.send('keepalive-network-error');
+              } else {
+                console.warn(`[KeepAlive] 네트워크 단절 감지, 30초 후 재시도 (${keepAliveRetries}/10)...`);
+                setTimeout(keepAlivePing, 30 * 1000);
+              }
+            } else {
+              keepAliveRetries = 0;
+            }
+          });
+        };
+        keepAliveInterval = setInterval(keepAlivePing, 3 * 60 * 1000);
+        return { ok: true };
+      } catch (err: any) {
+        const isTimeout = err.name === 'AbortError';
+        const code = isTimeout ? 'TIMEOUT' : (err.cause?.code || err.message || 'FETCH_FAILED');
+        console.error(`[Warmup] 시도 ${i + 1}/${MAX_ATTEMPTS} 실패: ${code}`);
+        if (i < MAX_ATTEMPTS - 1) await new Promise(r => setTimeout(r, isTimeout ? 500 : 2000));
+      }
     }
+    return { ok: false };
   });
 
   // 🌟 [기존 코드 유지] 멀티 에이전트 통신 파이프라인
@@ -148,7 +175,7 @@ app.whenReady().then(() => {
 
   // Atlassian 자격증명 헬퍼
   const getAtlassianAuth = async (userEmail: string): Promise<{ authHeader: string, baseUrl: string }> => {
-    const res = await fetch(`${PROXY_BASE_URL}/api/proxy`, {
+    const res = await net.fetch(`${PROXY_BASE_URL}/api/proxy`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userEmail, target: 'atlassian-token' })
     });
@@ -162,7 +189,7 @@ app.whenReady().then(() => {
   ipcMain.handle('search-error-note', async (_, config, userQuestion) => {
     try {
       const { authHeader, baseUrl } = await getAtlassianAuth(config.userEmail);
-      const res = await fetch(`${baseUrl}/wiki/rest/api/content/285802836?expand=body.storage`, {
+      const res = await net.fetch(`${baseUrl}/wiki/rest/api/content/285802836?expand=body.storage`, {
         method: 'GET', headers: { 'Authorization': authHeader, 'Accept': 'application/json' }
       });
       const data = await res.json();
@@ -213,7 +240,7 @@ app.whenReady().then(() => {
       const confluenceHeaders = { 'Authorization': authHeader, 'Content-Type': 'application/json', 'Accept': 'application/json' };
 
       // 1. GET
-      const getRes = await fetch(`${baseUrl}/wiki/rest/api/content/${pageId}?expand=body.storage,version,space`, {
+      const getRes = await net.fetch(`${baseUrl}/wiki/rest/api/content/${pageId}?expand=body.storage,version,space`, {
         method: 'GET', headers: confluenceHeaders
       });
       if (!getRes.ok) throw new Error('페이지를 읽어오지 못했습니다.');
@@ -235,7 +262,7 @@ app.whenReady().then(() => {
         storageHtml += `<table><tbody><tr><th>등록자</th><th>질문</th><th>올바른 답변</th><th>참고 링크</th></tr>${newRow}</tbody></table>`;
       }
 
-      const updateRes = await fetch(`${baseUrl}/wiki/rest/api/content/${pageId}`, {
+      const updateRes = await net.fetch(`${baseUrl}/wiki/rest/api/content/${pageId}`, {
         method: 'PUT', headers: confluenceHeaders,
         body: JSON.stringify({
           id: pageId, type: 'page', title: pageData.title,
