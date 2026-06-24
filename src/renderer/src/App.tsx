@@ -21,7 +21,7 @@ export default function App() {
   const [isLoginOpen, setIsLoginOpen] = useState(false)
   const [inputText, setInputText] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [messages, setMessages] = useState([{ text: '모든 시스템과 직통 연결되었습니다. 무엇을 검색할까요?', isBot: true, isSystem: false }])
+  const [messages, setMessages] = useState<{ text: string; isBot: boolean; isSystem: boolean }[]>([])
   const [isErrorNoteOpen, setIsErrorNoteOpen] = useState(false)
   const [errorNoteForm, setErrorNoteForm] = useState({ author: '', question: '', answer: '', link: '' })
   const [isAgentHovered, setIsAgentHovered] = useState(false)
@@ -59,6 +59,13 @@ export default function App() {
     const handler = () => setIsNetworkLost(true)
     electron.ipcRenderer.on('keepalive-network-error', handler)
     return () => electron.ipcRenderer.removeListener('keepalive-network-error', handler)
+  }, [])
+
+  // 기존 사용자(이미 이메일 연동됨)는 앱 시작 시 바로 웰컴 메시지 표시
+  useEffect(() => {
+    if (config.userEmail) {
+      setMessages([{ text: '모든 시스템과 직통 연결되었습니다. 무엇을 검색할까요?', isBot: true, isSystem: false }])
+    }
   }, [])
 
   useEffect(() => {
@@ -201,14 +208,21 @@ export default function App() {
   }
 
   const saveConfigAndConnect = async (newConfig: any) => {
-    // 이메일은 로그인 시 이미 검증됨 — config.userEmail 유지
-    const updatedConfig = { ...newConfig, userEmail: config.userEmail }
-    setConfig(updatedConfig)
-    localStorage.setItem('hive_conf_spaces', JSON.stringify(updatedConfig.confSpaces))
-    localStorage.setItem('hive_jira_spaces', JSON.stringify(updatedConfig.jiraSpaces))
+    const confSpaces = newConfig.confSpaces.map((s: string) => s.trim()).filter((s: string) => s.length > 0)
+    const jiraSpaces = newConfig.jiraSpaces.map((s: string) => s.trim()).filter((s: string) => s.length > 0)
+    if (confSpaces.length === 0 || jiraSpaces.length === 0) {
+      alert('스페이스 키를 하나 이상 입력해주세요.')
+      return
+    }
+    setConfig(prev => ({ ...prev, confSpaces, jiraSpaces }))
+    localStorage.setItem('hive_conf_spaces', JSON.stringify(confSpaces))
+    localStorage.setItem('hive_jira_spaces', JSON.stringify(jiraSpaces))
     setIsConfiguring(false)
     setIsErrorNoteOpen(false)
-    setMessages(prev => [...prev, { text: `시스템 연동 완료! 보안 세션이 가동됩니다.`, isBot: true, isSystem: true }])
+    setMessages([
+      { text: '시스템 연동 완료! 보안 세션이 가동됩니다.', isBot: true, isSystem: true },
+      { text: '모든 시스템과 직통 연결되었습니다. 무엇을 검색할까요?', isBot: true, isSystem: false },
+    ])
   }
 
   const toggleChat = (open: boolean) => {
