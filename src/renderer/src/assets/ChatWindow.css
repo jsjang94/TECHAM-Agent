@@ -29,11 +29,27 @@
 
 /* 신호등 버튼 */
 .mac-buttons { display: flex; gap: 8px; -webkit-app-region: no-drag; }
-.mac-btn { width: 12px; height: 12px; border-radius: 50%; cursor: pointer; transition: opacity 0.2s; }
-.mac-btn:hover { opacity: 0.7; }
+.mac-btn {
+  width: 12px; height: 12px; border-radius: 50%; cursor: pointer;
+  transition: filter 0.15s;
+  position: relative; display: flex; align-items: center; justify-content: center;
+}
+.mac-btn:hover { filter: brightness(0.85); }
 .mac-close { background-color: #ff5f56; border: 1px solid #e0443e; }
-.mac-min { background-color: #ffbd2e; border: 1px solid #dea123; }
-.mac-full { background-color: #27c93f; border: 1px solid #1aab29; }
+.mac-min   { background-color: #ffbd2e; border: 1px solid #dea123; }
+.mac-full  { background-color: #27c93f; border: 1px solid #1aab29; }
+
+/* 호버 시 아이콘 표시 */
+.mac-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: transparent;
+  user-select: none;
+  pointer-events: none;
+  transition: color 0.15s;
+}
+.mac-buttons:hover .mac-icon { color: rgba(0, 0, 0, 0.6); }
 
 /* 3. 하단 바디 영역 */
 .chat-body {

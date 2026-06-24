@@ -4,6 +4,9 @@ import { join } from 'path'
 import { optimizer, is } from '@electron-toolkit/utils'
 import { processUserMessage } from './agents/managerAgent'
 
+// Gemini SDK 등 서드파티 라이브러리의 fetch도 Chromium 네트워킹 사용하도록 전역 교체
+(global as any).fetch = net.fetch.bind(net)
+
 const PROXY_BASE_URL = 'https://techam-proxy.vercel.app';
 let keepAliveInterval: ReturnType<typeof setInterval> | null = null;
 let keepAliveRetries = 0;

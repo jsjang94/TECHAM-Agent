@@ -20,13 +20,17 @@ interface ChatWindowProps {
   setErrorNoteForm: (val: any) => void
   submitErrorNote: () => Promise<void>
   onTitlebarMouseDown: (e: React.MouseEvent) => void
+  isChatMinimized: boolean
+  isChatMaximized: boolean
+  onMinimize: () => void
+  onMaximize: () => void
 }
 
 export default function ChatWindow({
   toggleChat, config, isConfiguring, setIsConfiguring, saveConfigAndConnect,
   messages, isLoading, inputText, setInputText, handleSend, handleKeyDown,
   isErrorNoteOpen, setIsErrorNoteOpen, errorNoteForm, setErrorNoteForm, submitErrorNote,
-  onTitlebarMouseDown
+  onTitlebarMouseDown, isChatMinimized, isChatMaximized, onMinimize, onMaximize
 }: ChatWindowProps) {
 
   const [form, setForm] = useState(config)
@@ -38,7 +42,7 @@ export default function ChatWindow({
   }
   const addArrayItem = (type: 'confSpaces' | 'jiraSpaces') => { setForm({ ...form, [type]: [...form[type], ''] }); }
   const removeArrayItem = (type: 'confSpaces' | 'jiraSpaces', idx: number) => {
-    const newArr = form[type].filter((_, i) => i !== idx); setForm({ ...form, [type]: newArr });
+    const newArr = form[type].filter((_: string, i: number) => i !== idx); setForm({ ...form, [type]: newArr });
   }
 
   return (
@@ -47,12 +51,30 @@ export default function ChatWindow({
       {/* 🌟 타이틀바 (절대 고정) */}
       <div className="mac-titlebar" onMouseDown={onTitlebarMouseDown}>
         <div className="mac-buttons">
-          <div className="mac-btn mac-close" onClick={() => toggleChat(false)} title="위젯으로 돌아가기"></div>
-          <div className="mac-btn mac-min"></div>
-          <div className="mac-btn mac-full" onClick={() => {
-            if (!document.fullscreenElement) document.documentElement.requestFullscreen();
-            else if (document.exitFullscreen) document.exitFullscreen();
-          }} title="전체화면"></div>
+          <div className="mac-btn mac-close" onClick={() => toggleChat(false)} title="닫기">
+            <svg className="mac-icon" width="6" height="6" viewBox="0 0 6 6">
+              <line x1="0.75" y1="0.75" x2="5.25" y2="5.25" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+              <line x1="5.25" y1="0.75" x2="0.75" y2="5.25" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+            </svg>
+          </div>
+          <div className="mac-btn mac-min" onClick={onMinimize} title={isChatMinimized ? '복원' : '최소화'}>
+            <svg className="mac-icon" width="6" height="6" viewBox="0 0 6 6">
+              <line x1="0.75" y1="3" x2="5.25" y2="3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+            </svg>
+          </div>
+          <div className="mac-btn mac-full" onClick={onMaximize} title={isChatMaximized ? '기본 크기로' : '확대'}>
+            {isChatMaximized ? (
+              <svg className="mac-icon" width="6" height="6" viewBox="0 0 6 6">
+                <polyline points="0.75,2.5 0.75,0.75 2.5,0.75" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+                <polyline points="5.25,3.5 5.25,5.25 3.5,5.25" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+              </svg>
+            ) : (
+              <svg className="mac-icon" width="6" height="6" viewBox="0 0 6 6">
+                <polyline points="3.5,0.75 5.25,0.75 5.25,2.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+                <polyline points="2.5,5.25 0.75,5.25 0.75,3.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+              </svg>
+            )}
+          </div>
         </div>
       </div>
 

@@ -36,6 +36,9 @@ export default function App() {
   const [isLoginRequesting, setIsLoginRequesting] = useState(false)
   const [isLoginSuccess, setIsLoginSuccess] = useState(false)
   const [loginDotIndex, setLoginDotIndex] = useState(0)
+  const [isChatMinimized, setIsChatMinimized] = useState(false)
+  const [isChatMaximized, setIsChatMaximized] = useState(false)
+  const hasSessionRef = useRef(false)
 
   // 채팅창 CSS 드래그용 refs
   const chatRef = useRef<HTMLDivElement>(null)
@@ -43,6 +46,8 @@ export default function App() {
   const dragOffsetRef = useRef({ x: 0, y: 0 })
   const CHAT_W = Math.floor(window.screen.availWidth * 0.60)
   const CHAT_H = Math.floor(window.screen.availHeight * 0.70)
+  const CHAT_W_MAX = Math.floor(window.screen.availWidth * 0.85)
+  const CHAT_H_MAX = Math.floor(window.screen.availHeight * 0.88)
   const chatPosRef = useRef({
     left: Math.floor((window.screen.availWidth - CHAT_W) / 2),
     top: Math.floor(window.screen.availHeight - 170 - 70 - CHAT_H), // 에이전트(170px) 위 60px 여유
@@ -125,6 +130,13 @@ export default function App() {
 
   const handleAgentClick = async () => {
     if (isChatOpen || isTransitioning || isCheckingConnection) return
+
+    // 이미 로그인된 세션이면 웜업/로그인 체크 없이 바로 열기
+    if (hasSessionRef.current) {
+      toggleChat(true)
+      return
+    }
+
     const electron = (window as any).electron
     if (!electron?.ipcRenderer) {
       setConnectionError('ELECTRON_IPC_UNAVAILABLE')
@@ -143,13 +155,13 @@ export default function App() {
     let loginPopupShown = false
 
     try {
-      // Step 1: 웜업 (메인 프로세스에서 최대 10회 시도 후 결과 반환)
+      // Step 1: 웜업 (메인 프로세스에서 최대 30회 시도 후 결과 반환)
       const { ok: warmedUp } = await electron.ipcRenderer.invoke('warmup-proxy')
       if (!warmedUp) { setIsWarmupFailed(true); return }
       setIsWarmedUp(true)
       await new Promise(r => setTimeout(r, 700)) // "에이전트 활성화 성공!" 잠깐 표시
 
-      // Step 2: 로그인 최대 5회
+      // Step 2: 로그인 (최초 1회만)
       const savedEmail = localStorage.getItem('hive_user_email')
       const savedPassword = localStorage.getItem('hive_user_password')
       if (!savedEmail || !savedPassword) {
@@ -175,6 +187,7 @@ export default function App() {
       setIsLoggingIn(false)
 
       setConfig(prev => ({ ...prev, userEmail: savedEmail }))
+      hasSessionRef.current = true
       setIsLoginSuccess(true)
       await new Promise(r => setTimeout(r, 900))
       setIsLoginSuccess(false)
@@ -202,6 +215,10 @@ export default function App() {
     setIsAgentHovered(false)
     setIsTransitioning(true)
     setIsChatOpen(open)
+    if (!open) {
+      setIsChatMinimized(false)
+      setIsChatMaximized(false)
+    }
     setTimeout(() => setIsTransitioning(false), 200)
   }
 
@@ -261,59 +278,50 @@ export default function App() {
   return (
     <div className="main-container" style={{ width: '100vw', height: '100vh', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', backgroundColor: 'transparent' }}>
       {isNetworkLost && (
-        <div className="interactable" style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
-          <div style={{ backgroundColor: '#1c1c1e', borderRadius: '16px', padding: '36px 32px', border: '1px solid rgba(255,80,80,0.3)', width: '340px', boxSizing: 'border-box', textAlign: 'center' }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>⚠️</div>
-            <h3 style={{ color: '#fff', marginBottom: '8px', fontSize: '18px' }}>네트워크 연결 끊김</h3>
-            <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '14px', marginBottom: '20px' }}>서버 유지에 10회 연속 실패했습니다.<br/>네트워크 상태를 확인해주세요.</p>
-            <button
-              onClick={() => setIsNetworkLost(false)}
-              style={{ width: '100%', padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: 'rgba(255,255,255,0.12)', color: '#fff', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px' }}
-            >
-              닫기
-            </button>
-          </div>
+        <div className="interactable" style={{ position: 'fixed', bottom: '240px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#1c1c1e', borderRadius: '16px', padding: '24px 28px', border: '1px solid rgba(255,80,80,0.3)', width: '320px', boxSizing: 'border-box', textAlign: 'center', zIndex: 9999, boxShadow: '0 8px 32px rgba(0,0,0,0.6)' }}>
+          <h3 style={{ color: '#fff', marginBottom: '6px', fontSize: '15px' }}>네트워크 연결 끊김</h3>
+          <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '13px', marginBottom: '16px' }}>서버 유지에 10회 연속 실패했습니다.<br/>네트워크 상태를 확인해주세요.</p>
+          <button
+            onClick={() => setIsNetworkLost(false)}
+            style={{ width: '100%', padding: '10px', borderRadius: '8px', border: 'none', backgroundColor: 'rgba(255,255,255,0.12)', color: '#fff', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px' }}
+          >
+            닫기
+          </button>
         </div>
       )}
       {isWarmupFailed && (
-        <div className="interactable" style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
-          <div style={{ backgroundColor: '#1c1c1e', borderRadius: '16px', padding: '36px 32px', border: '1px solid rgba(255,80,80,0.3)', width: '340px', boxSizing: 'border-box', textAlign: 'center' }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>⚠️</div>
-            <h3 style={{ color: '#fff', marginBottom: '8px', fontSize: '18px' }}>에이전트 활성화 실패</h3>
-            <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '14px', marginBottom: '20px' }}>Vercel 서버가 응답하지 않습니다.<br/>재시도하면 연결될 수 있습니다.</p>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button
-                onClick={() => setIsWarmupFailed(false)}
-                style={{ flex: 1, padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px' }}
-              >
-                닫기
-              </button>
-              <button
-                onClick={handleAgentClick}
-                style={{ flex: 1, padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: 'rgba(255,159,10,0.25)', color: '#ff9f0a', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px' }}
-              >
-                재시도
-              </button>
-            </div>
+        <div className="interactable" style={{ position: 'fixed', bottom: '240px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#1c1c1e', borderRadius: '16px', padding: '24px 28px', border: '1px solid rgba(255,80,80,0.3)', width: '320px', boxSizing: 'border-box', textAlign: 'center', zIndex: 9999, boxShadow: '0 8px 32px rgba(0,0,0,0.6)' }}>
+          <h3 style={{ color: '#fff', marginBottom: '6px', fontSize: '15px' }}>에이전트 활성화 실패</h3>
+          <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '13px', marginBottom: '16px' }}>Vercel 서버가 응답하지 않습니다.<br/>재시도하면 연결될 수 있습니다.</p>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              onClick={() => setIsWarmupFailed(false)}
+              style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', backgroundColor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px' }}
+            >
+              닫기
+            </button>
+            <button
+              onClick={handleAgentClick}
+              style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', backgroundColor: 'rgba(255,159,10,0.2)', color: '#ff9f0a', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px' }}
+            >
+              재시도
+            </button>
           </div>
         </div>
       )}
       {connectionError && (
-        <div className="interactable" style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
-          <div style={{ backgroundColor: '#1c1c1e', borderRadius: '16px', padding: '36px 32px', border: '1px solid rgba(255,80,80,0.3)', width: '340px', boxSizing: 'border-box', textAlign: 'center' }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>⚠️</div>
-            <h3 style={{ color: '#fff', marginBottom: '8px', fontSize: '18px' }}>프록시 서버 연결 실패</h3>
-            <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '13px', marginBottom: '16px' }}>네트워크를 확인하거나 잠시 후 다시 시도해주세요.</p>
-            <div style={{ backgroundColor: 'rgba(255,59,48,0.12)', border: '1px solid rgba(255,59,48,0.3)', borderRadius: '8px', padding: '10px 14px', marginBottom: '20px' }}>
-              <code style={{ color: '#ff6b6b', fontSize: '13px', wordBreak: 'break-all' }}>{connectionError}</code>
-            </div>
-            <button
-              onClick={() => setConnectionError(null)}
-              style={{ width: '100%', padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: 'rgba(255,255,255,0.12)', color: '#fff', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px' }}
-            >
-              닫기
-            </button>
+        <div className="interactable" style={{ position: 'fixed', bottom: '240px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#1c1c1e', borderRadius: '16px', padding: '24px 28px', border: '1px solid rgba(255,80,80,0.3)', width: '320px', boxSizing: 'border-box', textAlign: 'center', zIndex: 9999, boxShadow: '0 8px 32px rgba(0,0,0,0.6)' }}>
+          <h3 style={{ color: '#fff', marginBottom: '6px', fontSize: '15px' }}>프록시 서버 연결 실패</h3>
+          <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '13px', marginBottom: '12px' }}>네트워크를 확인하거나 잠시 후 다시 시도해주세요.</p>
+          <div style={{ backgroundColor: 'rgba(255,59,48,0.12)', border: '1px solid rgba(255,59,48,0.3)', borderRadius: '8px', padding: '8px 12px', marginBottom: '16px' }}>
+            <code style={{ color: '#ff6b6b', fontSize: '12px', wordBreak: 'break-all' }}>{connectionError}</code>
           </div>
+          <button
+            onClick={() => setConnectionError(null)}
+            style={{ width: '100%', padding: '10px', borderRadius: '8px', border: 'none', backgroundColor: 'rgba(255,255,255,0.12)', color: '#fff', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px' }}
+          >
+            닫기
+          </button>
         </div>
       )}
       {isLoginOpen && (
@@ -325,6 +333,7 @@ export default function App() {
             setIsLoggingIn(false)
             setIsLoginOpen(false)
             setConfig(prev => ({ ...prev, userEmail: email }))
+            hasSessionRef.current = true
             setIsLoginSuccess(true)
             await new Promise(r => setTimeout(r, 900))
             setIsLoginSuccess(false)
@@ -336,7 +345,17 @@ export default function App() {
         <div
           ref={chatRef}
           className="interactable"
-          style={{ position: 'fixed', left: chatPosRef.current.left, top: chatPosRef.current.top, width: CHAT_W, height: CHAT_H, zIndex: 10, overflow: 'hidden', borderRadius: '12px' }}
+          style={{
+            position: 'fixed',
+            left: chatPosRef.current.left,
+            top: chatPosRef.current.top,
+            width: isChatMaximized ? CHAT_W_MAX : CHAT_W,
+            height: isChatMinimized ? 35 : (isChatMaximized ? CHAT_H_MAX : CHAT_H),
+            zIndex: 10,
+            overflow: 'hidden',
+            borderRadius: '12px',
+            transition: 'width 0.2s ease, height 0.2s ease',
+          }}
         >
           <ChatWindow
             toggleChat={toggleChat} config={config}
@@ -346,6 +365,10 @@ export default function App() {
             isErrorNoteOpen={isErrorNoteOpen} setIsErrorNoteOpen={setIsErrorNoteOpen}
             errorNoteForm={errorNoteForm} setErrorNoteForm={setErrorNoteForm} submitErrorNote={submitErrorNote}
             onTitlebarMouseDown={handleTitlebarMouseDown}
+            isChatMinimized={isChatMinimized}
+            isChatMaximized={isChatMaximized}
+            onMinimize={() => setIsChatMinimized(v => !v)}
+            onMaximize={() => { setIsChatMaximized(v => !v); setIsChatMinimized(false); }}
           />
         </div>
       )}
