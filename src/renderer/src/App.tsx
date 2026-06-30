@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import techamAgentImg from './assets/techamAgentImg.png'
 import ChatWindow from './components/ChatWindow'
 import LoginPopup from './components/LoginPopup'
+import AlertModal from './components/AlertModal'
 import './assets/main.css'
 
 const safeParse = (key: string, defaultVal: string[]) => {
@@ -39,6 +40,8 @@ export default function App() {
   const [isChatMinimized, setIsChatMinimized] = useState(false)
   const [isChatMaximized, setIsChatMaximized] = useState(false)
   const hasSessionRef = useRef(false)
+  const [alertModal, setAlertModal] = useState<{ emoji: string; message: string } | null>(null)
+  const showAlert = (emoji: string, message: string) => setAlertModal({ emoji, message })
 
   // 채팅창 CSS 드래그용 refs
   const chatRef = useRef<HTMLDivElement>(null)
@@ -211,7 +214,7 @@ export default function App() {
     const confSpaces = newConfig.confSpaces.map((s: string) => s.trim()).filter((s: string) => s.length > 0)
     const jiraSpaces = newConfig.jiraSpaces.map((s: string) => s.trim()).filter((s: string) => s.length > 0)
     if (confSpaces.length === 0 || jiraSpaces.length === 0) {
-      alert('스페이스 키를 하나 이상 입력해주세요.')
+      showAlert('⚠️', '스페이스 키를 하나 이상 입력해주세요.')
       return
     }
     setConfig(prev => ({ ...prev, confSpaces, jiraSpaces }))
@@ -219,10 +222,7 @@ export default function App() {
     localStorage.setItem('hive_jira_spaces', JSON.stringify(jiraSpaces))
     setIsConfiguring(false)
     setIsErrorNoteOpen(false)
-    setMessages([
-      { text: '시스템 연동 완료! 보안 세션이 가동됩니다.', isBot: true, isSystem: true },
-      { text: '모든 시스템과 직통 연결되었습니다. 무엇을 검색할까요?', isBot: true, isSystem: false },
-    ])
+    showAlert('✅', '설정이 완료되었습니다.')
   }
 
   const toggleChat = (open: boolean) => {
@@ -270,18 +270,18 @@ export default function App() {
   }
 
   const submitErrorNote = async () => {
-    if (!errorNoteForm.question || !errorNoteForm.answer) return alert('질문과 답변은 필수입니다!');
+    if (!errorNoteForm.question || !errorNoteForm.answer) return showAlert('✏️', '질문과 답변은 필수입니다!');
     setIsLoading(true);
     const electron = (window as any).electron;
     if (electron?.ipcRenderer) {
       const res = await electron.ipcRenderer.invoke('write-error-note', config, errorNoteForm);
       setIsLoading(false);
       if (res.success) {
-        alert('오답노트가 성공적으로 추가되었습니다!');
-        setIsErrorNoteOpen(false); 
-        setErrorNoteForm({ author: '', question: '', answer: '', link: '' }); 
-      } else if (res.isConflict) alert('충돌이 발생했습니다. 다시 시도해주세요.');
-      else alert(`등록 실패: ${res.error}`);
+        showAlert('📝', '오답노트가 성공적으로 추가되었습니다!');
+        setIsErrorNoteOpen(false);
+        setErrorNoteForm({ author: '', question: '', answer: '', link: '' });
+      } else if (res.isConflict) showAlert('⚡', '충돌이 발생했습니다.\n다시 시도해주세요.');
+      else showAlert('❌', `등록 실패: ${res.error}`);
     }
   }
 
@@ -291,6 +291,9 @@ export default function App() {
 
   return (
     <div className="main-container" style={{ width: '100vw', height: '100vh', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', backgroundColor: 'transparent' }}>
+      {alertModal && (
+        <AlertModal emoji={alertModal.emoji} message={alertModal.message} onClose={() => setAlertModal(null)} />
+      )}
       {isNetworkLost && (
         <div className="interactable" style={{ position: 'fixed', bottom: '240px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#1c1c1e', borderRadius: '16px', padding: '24px 28px', border: '1px solid rgba(255,80,80,0.3)', width: '320px', boxSizing: 'border-box', textAlign: 'center', zIndex: 9999, boxShadow: '0 8px 32px rgba(0,0,0,0.6)' }}>
           <h3 style={{ color: '#fff', marginBottom: '6px', fontSize: '15px' }}>네트워크 연결 끊김</h3>

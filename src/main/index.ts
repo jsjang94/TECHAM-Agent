@@ -141,16 +141,27 @@ app.whenReady().then(() => {
             console.log(`[KeepAlive] /api/gemini ${geminiOk ? 'OK' : '실패'}`);
             if (!proxyOk && !geminiOk) {
               keepAliveRetries++;
+              // interval을 멈추고 setTimeout 재시도로만 진행 (중복 실행 방지)
+              if (keepAliveInterval) {
+                clearInterval(keepAliveInterval);
+                keepAliveInterval = null;
+              }
               if (keepAliveRetries >= 10) {
                 console.error('[KeepAlive] 10회 재시도 실패 — 네트워크 에러 알림');
                 keepAliveRetries = 0;
                 BrowserWindow.getAllWindows()[0]?.webContents.send('keepalive-network-error');
+                keepAliveInterval = setInterval(keepAlivePing, 3 * 60 * 1000);
               } else {
                 console.warn(`[KeepAlive] 네트워크 단절 감지, 30초 후 재시도 (${keepAliveRetries}/10)...`);
                 setTimeout(keepAlivePing, 30 * 1000);
               }
             } else {
               keepAliveRetries = 0;
+              // 재시도 중 interval이 꺼진 상태였으면 복구
+              if (!keepAliveInterval) {
+                console.log('[KeepAlive] 연결 복구 — 정상 간격(3분)으로 재개');
+                keepAliveInterval = setInterval(keepAlivePing, 3 * 60 * 1000);
+              }
             }
           });
         };

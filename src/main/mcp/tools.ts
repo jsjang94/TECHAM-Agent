@@ -1,5 +1,31 @@
 import { SchemaType, FunctionDeclaration } from '@google/generative-ai';
 import * as cheerio from 'cheerio';
+import { request as httpsRequest } from 'https';
+
+// Electron net.fetch는 Chromium 세션 쿠키·Origin 헤더를 붙여 Jira XSRF를 유발.
+// Node.js https 모듈로 직접 호출해 순수 API 요청으로 처리.
+function nodeHttpsFetch(
+  url: string,
+  options: { method: string; headers: Record<string, string>; body?: string }
+): Promise<{ ok: boolean; status: number; json(): Promise<any>; text(): Promise<string> }> {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const req = httpsRequest(
+      { hostname: parsed.hostname, path: parsed.pathname + parsed.search, method: options.method, headers: options.headers },
+      (res) => {
+        let raw = '';
+        res.on('data', (chunk) => (raw += chunk));
+        res.on('end', () => {
+          const status = res.statusCode ?? 0;
+          resolve({ ok: status >= 200 && status < 300, status, json: () => Promise.resolve(JSON.parse(raw)), text: () => Promise.resolve(raw) });
+        });
+      }
+    );
+    req.on('error', reject);
+    if (options.body) req.write(options.body);
+    req.end();
+  });
+}
 
 // 만능 HTML 정제기 (유지)
 export const stripHtml = (html: string) => {
@@ -158,12 +184,12 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
 
       console.log(`[Jira Search] 직접 호출 URL: ${baseUrl}/rest/api/3/search/jql`);
       console.log(`[Jira Search] JQL: ${safeJql}`);
-      const res = await fetch(`${baseUrl}/rest/api/3/search/jql`, {
+      const res = await nodeHttpsFetch(`${baseUrl}/rest/api/3/search/jql`, {
         method: 'POST',
         headers: {
           'Authorization': authHeader,
           'Content-Type': 'application/json',
-          'Accept': 'application/json'
+          'Accept': 'application/json',
         },
         body: JSON.stringify({
           jql: safeJql,
@@ -208,11 +234,10 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
       const { authHeader, baseUrl } = authResult;
 
       console.log(`[Confluence Search] 직접 호출 URL: ${baseUrl}/wiki/rest/api/content/search`);
-      const res = await fetch(`${baseUrl}/wiki/rest/api/content/search?cql=${encodeURIComponent(safeCql)}&limit=6&expand=body.plain`, {
+      const res = await nodeHttpsFetch(`${baseUrl}/wiki/rest/api/content/search?cql=${encodeURIComponent(safeCql)}&limit=6&expand=body.plain`, {
         method: 'GET',
         headers: {
           'Authorization': authHeader,
-          'Content-Type': 'application/json',
           'Accept': 'application/json'
         }
       });
