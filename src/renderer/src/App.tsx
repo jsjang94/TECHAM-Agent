@@ -32,11 +32,13 @@ export default function App() {
   const [isWarmedUp, setIsWarmedUp] = useState(false)
   const [isWarmupFailed, setIsWarmupFailed] = useState(false)
   const [isNetworkLost, setIsNetworkLost] = useState(false)
+  const [isNetworkReconnecting, setIsNetworkReconnecting] = useState(false)
   const [warmupDotIndex, setWarmupDotIndex] = useState(0)
   const [isLoggingIn, setIsLoggingIn] = useState(false)
   const [isLoginRequesting, setIsLoginRequesting] = useState(false)
   const [isLoginSuccess, setIsLoginSuccess] = useState(false)
   const [loginDotIndex, setLoginDotIndex] = useState(0)
+  const [reconnectDotIndex, setReconnectDotIndex] = useState(0)
   const [isChatMinimized, setIsChatMinimized] = useState(false)
   const [isChatMaximized, setIsChatMaximized] = useState(false)
   const hasSessionRef = useRef(false)
@@ -59,9 +61,17 @@ export default function App() {
   useEffect(() => {
     const electron = (window as any).electron
     if (!electron?.ipcRenderer) return
-    const handler = () => setIsNetworkLost(true)
-    electron.ipcRenderer.on('keepalive-network-error', handler)
-    return () => electron.ipcRenderer.removeListener('keepalive-network-error', handler)
+    const onReconnecting = () => { setIsNetworkReconnecting(true); }
+    const onError = () => { setIsNetworkLost(true); setIsNetworkReconnecting(true); }
+    const onRestored = () => { setIsNetworkLost(false); setIsNetworkReconnecting(false); }
+    electron.ipcRenderer.on('keepalive-reconnecting', onReconnecting)
+    electron.ipcRenderer.on('keepalive-network-error', onError)
+    electron.ipcRenderer.on('keepalive-restored', onRestored)
+    return () => {
+      electron.ipcRenderer.removeListener('keepalive-reconnecting', onReconnecting)
+      electron.ipcRenderer.removeListener('keepalive-network-error', onError)
+      electron.ipcRenderer.removeListener('keepalive-restored', onRestored)
+    }
   }, [])
 
   // 기존 사용자(이미 이메일 연동됨)는 앱 시작 시 바로 웰컴 메시지 표시
@@ -89,6 +99,13 @@ export default function App() {
     const id = setInterval(() => setLoginDotIndex(i => (i + 1) % 3), 600)
     return () => clearInterval(id)
   }, [isLoginRequesting])
+
+  // 네트워크 재연결 중 점 애니메이션
+  useEffect(() => {
+    if (!isNetworkReconnecting) return
+    const id = setInterval(() => setReconnectDotIndex(i => (i + 1) % 3), 600)
+    return () => clearInterval(id)
+  }, [isNetworkReconnecting])
 
   useEffect(() => {
     setIsAgentHovered(false)
@@ -138,8 +155,8 @@ export default function App() {
     dragOffsetRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top }
   }
 
-  const handleAgentClick = async () => {
-    if (isChatOpen || isTransitioning || isCheckingConnection) return
+  const handleAgentClick = async (fromRetry = false) => {
+    if (isChatOpen || isTransitioning || isCheckingConnection || (!fromRetry && isWarmupFailed)) return
 
     // 이미 로그인된 세션이면 웜업/로그인 체크 없이 바로 열기
     if (hasSessionRef.current) {
@@ -225,6 +242,13 @@ export default function App() {
     showAlert('✅', '설정이 완료되었습니다.')
   }
 
+  const handleNetworkReconnect = () => {
+    setIsNetworkLost(false)
+    // isNetworkReconnecting은 keepalive-restored 수신 시 자동 해제
+    const electron = (window as any).electron
+    electron?.ipcRenderer?.send('retry-keepalive')
+  }
+
   const toggleChat = (open: boolean) => {
     setIsAgentHovered(false)
     setIsTransitioning(true)
@@ -298,12 +322,20 @@ export default function App() {
         <div className="interactable" style={{ position: 'fixed', bottom: '240px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#1c1c1e', borderRadius: '16px', padding: '24px 28px', border: '1px solid rgba(255,80,80,0.3)', width: '320px', boxSizing: 'border-box', textAlign: 'center', zIndex: 9999, boxShadow: '0 8px 32px rgba(0,0,0,0.6)' }}>
           <h3 style={{ color: '#fff', marginBottom: '6px', fontSize: '15px' }}>네트워크 연결 끊김</h3>
           <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '13px', marginBottom: '16px' }}>서버 유지에 10회 연속 실패했습니다.<br/>네트워크 상태를 확인해주세요.</p>
-          <button
-            onClick={() => setIsNetworkLost(false)}
-            style={{ width: '100%', padding: '10px', borderRadius: '8px', border: 'none', backgroundColor: 'rgba(255,255,255,0.12)', color: '#fff', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px' }}
-          >
-            닫기
-          </button>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              onClick={() => { setIsNetworkLost(false); setIsNetworkReconnecting(false); toggleChat(false); setIsWarmedUp(false); hasSessionRef.current = false; }}
+              style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', backgroundColor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px' }}
+            >
+              닫기
+            </button>
+            <button
+              onClick={handleNetworkReconnect}
+              style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', backgroundColor: 'rgba(255,159,10,0.2)', color: '#ff9f0a', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px' }}
+            >
+              재시도
+            </button>
+          </div>
         </div>
       )}
       {isWarmupFailed && (
@@ -318,7 +350,7 @@ export default function App() {
               닫기
             </button>
             <button
-              onClick={handleAgentClick}
+              onClick={() => handleAgentClick(true)}
               style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', backgroundColor: 'rgba(255,159,10,0.2)', color: '#ff9f0a', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px' }}
             >
               재시도
@@ -379,6 +411,7 @@ export default function App() {
             isConfiguring={isConfiguring} setIsConfiguring={setIsConfiguring} saveConfigAndConnect={saveConfigAndConnect}
             messages={messages as any} isLoading={isLoading} inputText={inputText} setInputText={setInputText}
             handleSend={handleSend} handleKeyDown={handleKeyDown}
+            isNetworkReconnecting={isNetworkReconnecting}
             isErrorNoteOpen={isErrorNoteOpen} setIsErrorNoteOpen={setIsErrorNoteOpen}
             errorNoteForm={errorNoteForm} setErrorNoteForm={setErrorNoteForm} submitErrorNote={submitErrorNote}
             onTitlebarMouseDown={handleTitlebarMouseDown}
@@ -394,9 +427,10 @@ export default function App() {
         {/* 서버 상태 플로팅 바 */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px 14px', backgroundColor: 'rgba(100,100,100,0.60)', borderRadius: '8px', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.25)', boxShadow: '0 4px 20px rgba(0,0,0,0.25)', marginBottom: '16px', zIndex: 1 }}>
           {/* 프록시 연결 상태 점: 주황(워밍업 중) → 초록(준비됨) */}
-          <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: isWarmupFailed ? '#ff3b30' : (isWarmedUp && !isLoggingIn) ? '#34c759' : isCheckingConnection ? '#ff9f0a' : 'rgba(255,255,255,0.30)', boxShadow: isWarmupFailed ? '0 0 5px rgba(255,59,48,0.95)' : (isWarmedUp && !isLoggingIn) ? '0 0 5px rgba(52,199,89,0.95)' : isCheckingConnection ? '0 0 5px rgba(255,159,10,0.85)' : 'none', animation: ((isCheckingConnection && !isWarmedUp && !isWarmupFailed) || isLoginRequesting) ? 'statusPulse 1.4s ease-in-out infinite' : 'none', flexShrink: 0 }} />
+          <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: isWarmupFailed ? '#ff3b30' : isNetworkReconnecting ? '#ff9f0a' : (isWarmedUp && !isLoggingIn) ? '#34c759' : isCheckingConnection ? '#ff9f0a' : 'rgba(255,255,255,0.30)', boxShadow: isWarmupFailed ? '0 0 5px rgba(255,59,48,0.95)' : isNetworkReconnecting ? '0 0 5px rgba(255,159,10,0.85)' : (isWarmedUp && !isLoggingIn) ? '0 0 5px rgba(52,199,89,0.95)' : isCheckingConnection ? '0 0 5px rgba(255,159,10,0.85)' : 'none', animation: ((isCheckingConnection && !isWarmedUp && !isWarmupFailed) || isLoginRequesting || isNetworkReconnecting) ? 'statusPulse 1.4s ease-in-out infinite' : 'none', flexShrink: 0 }} />
           <span style={{ fontSize: '13px', fontWeight: '400', color: 'rgba(255,255,255,0.92)', whiteSpace: 'nowrap', letterSpacing: '-0.2px' }}>
-            {isChatOpen ? '명령 대기 중'
+            {isNetworkReconnecting ? ['네트워크 연결 재시도 중..', '네트워크 연결 재시도 중...', '네트워크 연결 재시도 중....'][reconnectDotIndex]
+              : isChatOpen ? '명령 대기 중'
               : isLoginSuccess ? '로그인 성공!'
               : isLoggingIn ? ['로그인 중..', '로그인 중...', '로그인 중...'][loginDotIndex]
               : isWarmedUp ? '에이전트 활성화 성공!'
@@ -411,8 +445,8 @@ export default function App() {
 
         {/* 에이전트 이미지 */}
         <div
-          onClick={handleAgentClick}
-          style={{ width: '140px', height: '140px', position: 'relative', zIndex: 1, cursor: (isChatOpen || isCheckingConnection) ? 'default' : 'pointer', transition: isTransitioning ? 'none' : 'transform 0.25s ease', marginBottom: '25px', transform: (isAgentHovered && !isTransitioning) ? 'scale(1.15)' : 'scale(1)', pointerEvents: isTransitioning ? 'none' : 'auto' }}
+          onClick={() => handleAgentClick()}
+          style={{ width: '140px', height: '140px', position: 'relative', zIndex: 1, cursor: (isChatOpen || isCheckingConnection || isWarmupFailed) ? 'default' : 'pointer', transition: isTransitioning ? 'none' : 'transform 0.25s ease', marginBottom: '25px', transform: (isAgentHovered && !isTransitioning) ? 'scale(1.15)' : 'scale(1)', pointerEvents: isTransitioning ? 'none' : 'auto' }}
           onMouseEnter={() => !isChatOpen && !isTransitioning && !isCheckingConnection && setIsAgentHovered(true)}
           onMouseLeave={() => setIsAgentHovered(false)}
         >

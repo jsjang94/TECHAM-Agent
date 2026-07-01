@@ -10,6 +10,7 @@ import { processUserMessage } from './agents/managerAgent'
 const PROXY_BASE_URL = 'https://techam-proxy.vercel.app';
 let keepAliveInterval: ReturnType<typeof setInterval> | null = null;
 let keepAliveRetries = 0;
+let keepAlivePingFn: (() => void) | null = null;
 
 function createWindow(): void {
   const primaryDisplay = screen.getPrimaryDisplay()
@@ -141,30 +142,34 @@ app.whenReady().then(() => {
             console.log(`[KeepAlive] /api/gemini ${geminiOk ? 'OK' : '실패'}`);
             if (!proxyOk && !geminiOk) {
               keepAliveRetries++;
-              // interval을 멈추고 setTimeout 재시도로만 진행 (중복 실행 방지)
               if (keepAliveInterval) {
                 clearInterval(keepAliveInterval);
                 keepAliveInterval = null;
               }
               if (keepAliveRetries >= 10) {
-                console.error('[KeepAlive] 10회 재시도 실패 — 네트워크 에러 알림');
+                console.error('[KeepAlive] 10회 재시도 실패 — 네트워크 에러 알림. 재시도 버튼 대기 중.');
                 keepAliveRetries = 0;
                 BrowserWindow.getAllWindows()[0]?.webContents.send('keepalive-network-error');
-                keepAliveInterval = setInterval(keepAlivePing, 3 * 60 * 1000);
+                // 자동 재시도 없음 — 렌더러의 재시도 버튼으로만 재개
               } else {
                 console.warn(`[KeepAlive] 네트워크 단절 감지, 30초 후 재시도 (${keepAliveRetries}/10)...`);
+                if (keepAliveRetries === 1) {
+                  // 첫 실패 시 즉시 렌더러에 재연결 중 상태 알림 (팝업 없이 스피너만)
+                  BrowserWindow.getAllWindows()[0]?.webContents.send('keepalive-reconnecting');
+                }
                 setTimeout(keepAlivePing, 30 * 1000);
               }
             } else {
               keepAliveRetries = 0;
-              // 재시도 중 interval이 꺼진 상태였으면 복구
               if (!keepAliveInterval) {
                 console.log('[KeepAlive] 연결 복구 — 정상 간격(3분)으로 재개');
+                BrowserWindow.getAllWindows()[0]?.webContents.send('keepalive-restored');
                 keepAliveInterval = setInterval(keepAlivePing, 3 * 60 * 1000);
               }
             }
           });
         };
+        keepAlivePingFn = keepAlivePing;
         keepAliveInterval = setInterval(keepAlivePing, 3 * 60 * 1000);
         return { ok: true };
       } catch (err: any) {
@@ -176,6 +181,8 @@ app.whenReady().then(() => {
     }
     return { ok: false };
   });
+
+  ipcMain.on('retry-keepalive', () => keepAlivePingFn?.());
 
   // 🌟 [기존 코드 유지] 멀티 에이전트 통신 파이프라인
   ipcMain.handle('chat-with-agent', async (_, config, userMessage, chatHistory) => {

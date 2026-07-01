@@ -24,13 +24,15 @@ interface ChatWindowProps {
   isChatMaximized: boolean
   onMinimize: () => void
   onMaximize: () => void
+  isNetworkReconnecting?: boolean
 }
 
 export default function ChatWindow({
   toggleChat, config, isConfiguring, setIsConfiguring, saveConfigAndConnect,
   messages, isLoading, inputText, setInputText, handleSend, handleKeyDown,
   isErrorNoteOpen, setIsErrorNoteOpen, errorNoteForm, setErrorNoteForm, submitErrorNote,
-  onTitlebarMouseDown, isChatMinimized, isChatMaximized, onMinimize, onMaximize
+  onTitlebarMouseDown, isChatMinimized, isChatMaximized, onMinimize, onMaximize,
+  isNetworkReconnecting = false
 }: ChatWindowProps) {
 
   const [form, setForm] = useState(config)
@@ -180,7 +182,13 @@ export default function ChatWindow({
 
           ) : (
             /* 🌟 채팅 메시지 화면 */
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden', position: 'relative' }}>
+              {isNetworkReconnecting && (
+                <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(28,28,30,0.88)', backdropFilter: 'blur(4px)' }}>
+                  <div className="reconnect-spinner" />
+                  <p style={{ color: 'rgba(255,255,255,0.65)', fontSize: '13px', marginTop: '14px' }}>서버 재연결 중...</p>
+                </div>
+              )}
               
               {/* 🌟 핵심 해결책: App.tsx가 스크롤을 찾을 수 있도록 id="chat-scroll-area" 추가! */}
               <div id="chat-scroll-area" style={{ flex: 1, padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -214,12 +222,12 @@ export default function ChatWindow({
                     value={inputText} 
                     onChange={(e) => setInputText(e.target.value)} 
                     onKeyDown={handleKeyDown} 
-                    disabled={isLoading} 
-                    style={{ flex: 1, background: 'transparent', border: 'none', color: '#fff', fontSize: '14px', outline: 'none', height: '36px' }} 
+                    disabled={isLoading || isNetworkReconnecting}
+                    style={{ flex: 1, background: 'transparent', border: 'none', color: '#fff', fontSize: '14px', outline: 'none', height: '36px' }}
                   />
-                  <button 
-                    onClick={handleSend} 
-                    disabled={isLoading || !inputText.trim()} 
+                  <button
+                    onClick={handleSend}
+                    disabled={isLoading || isNetworkReconnecting || !inputText.trim()} 
                     style={{ width: '32px', height: '32px', backgroundColor: inputText.trim() ? '#00f3ff' : 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '8px', color: inputText.trim() ? '#000' : '#fff', cursor: inputText.trim() ? 'pointer' : 'default', marginLeft: '8px' }}>
                     ↑
                   </button>
