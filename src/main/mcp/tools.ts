@@ -4,7 +4,7 @@ import { request as httpsRequest } from 'https';
 
 // Electron net.fetch는 Chromium 세션 쿠키·Origin 헤더를 붙여 Jira XSRF를 유발.
 // Node.js https 모듈로 직접 호출해 순수 API 요청으로 처리.
-function nodeHttpsFetch(
+export function nodeHttpsFetch(
   url: string,
   options: { method: string; headers: Record<string, string>; body?: string }
 ): Promise<{ ok: boolean; status: number; json(): Promise<any>; text(): Promise<string> }> {
@@ -166,6 +166,28 @@ async function getAtlassianAuth(userEmail: string): Promise<{ authHeader: string
   }
 }
 
+// 🌟 Zendesk 공통 토큰 발급 헬퍼 함수 (Atlassian과 동일한 패턴)
+async function getZendeskAuth(userEmail: string): Promise<{ authHeader: string, baseUrl: string } | { error: string }> {
+  try {
+    const tokenRes = await fetch(`${PROXY_BASE_URL}/api/proxy`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userEmail, target: 'zendesk-token' })
+    });
+
+    if (!tokenRes.ok) {
+      return { error: `Zendesk 인증 정보 획득 실패 (상태 코드: ${tokenRes.status})` };
+    }
+
+    const data = await tokenRes.json();
+    if (!data.baseUrl) return { error: "Zendesk 주소가 설정되지 않았습니다." };
+
+    return { authHeader: data.authHeader, baseUrl: data.baseUrl };
+  } catch (err: any) {
+    return { error: `Zendesk 토큰 발급 중 시스템 에러: ${err.message}` };
+  }
+}
+
 export async function executeMcpTool(name: string, args: any, config: any): Promise<string> {
   try {
     // =========================================================================
@@ -259,38 +281,40 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
     }
 
     // =========================================================================
-    // 📖 3. Zendesk 검색 (외부망 - 프록시 통신)
+    // 📖 3. Zendesk 검색 (외부망 직결 + 공통 인증 헬퍼 사용)
     // =========================================================================
     if (name === 'search_zendesk') {
       if (!args.keywords || args.keywords.length === 0) return "검색 키워드가 없습니다.";
       const safeQuery = args.keywords.map((k: string) => `"${k.replace(/"/g, '')}"`).join(' ');
-      
-      const res = await fetch(`${PROXY_BASE_URL}/api/proxy`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userEmail: config.userEmail, target: 'zendesk', method: 'GET',
-          endpoint: `/api/v2/search.json?query=type:ticket%20${encodeURIComponent(safeQuery)}`
-        })
+
+      const authResult = await getZendeskAuth(config.userEmail);
+      if ('error' in authResult) return authResult.error;
+      const { authHeader, baseUrl } = authResult;
+
+      const res = await nodeHttpsFetch(`${baseUrl}/api/v2/search.json?query=type:ticket%20${encodeURIComponent(safeQuery)}`, {
+        method: 'GET',
+        headers: { 'Authorization': authHeader, 'Accept': 'application/json' }
       });
-      
-      if (!res.ok) return `Zendesk API 통신 실패: ${res.status}`;
+
+      if (!res.ok) return `Zendesk API 직접 통신 실패 (상태 코드: ${res.status})`;
       const data = await res.json();
       if (!data.results || data.results.length === 0) return `검색된 Zendesk 티켓이 없습니다.`;
-      
+
       const topTickets = data.results.slice(0, 8);
       const ticketDetails = await Promise.all(topTickets.map(async (t: any) => {
+        const ticketLink = `${baseUrl}/agent/tickets/${t.id}`;
         try {
-          const commentRes = await fetch(`${PROXY_BASE_URL}/api/proxy`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userEmail: config.userEmail, target: 'zendesk', method: 'GET', endpoint: `/api/v2/tickets/${t.id}/comments.json` })
+          const commentRes = await nodeHttpsFetch(`${baseUrl}/api/v2/tickets/${t.id}/comments.json`, {
+            method: 'GET',
+            headers: { 'Authorization': authHeader, 'Accept': 'application/json' }
           });
           const commentData = await commentRes.json();
           let conversation = `[최초 문의]: ${t.description?.substring(0, 300)}...`;
           if (commentData.comments?.length > 1) conversation += `\n[팀원 답변]: ${stripHtml(commentData.comments[commentData.comments.length - 1].body).substring(0, 600)}...`;
 
-          return `[티켓 #${t.id}] ${t.subject}\n[링크]: ${t.ticketLink}\n${conversation}`;
+          return `[티켓 #${t.id}] ${t.subject}\n[링크]: ${ticketLink}\n${conversation}`;
         } catch (err) {
-          return `[티켓 #${t.id}] ${t.subject}\n[링크]: ${t.ticketLink}\n[최초 문의]: ${t.description?.substring(0, 500)}...`;
+          return `[티켓 #${t.id}] ${t.subject}\n[링크]: ${ticketLink}\n[최초 문의]: ${t.description?.substring(0, 500)}...`;
         }
       }));
       return ticketDetails.join('\n\n--------------------\n\n');

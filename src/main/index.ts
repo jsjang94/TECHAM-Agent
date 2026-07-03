@@ -3,6 +3,7 @@ import { app, BrowserWindow, screen, ipcMain, net } from 'electron'
 import { join } from 'path'
 import { optimizer, is } from '@electron-toolkit/utils'
 import { processUserMessage } from './agents/managerAgent'
+import { nodeHttpsFetch } from './mcp/tools'
 
 // Gemini SDK 등 서드파티 라이브러리의 fetch도 Chromium 네트워킹 사용하도록 전역 교체
 (global as any).fetch = net.fetch.bind(net)
@@ -205,6 +206,44 @@ app.whenReady().then(() => {
     if (!data.baseUrl) throw new Error('Atlassian baseUrl 없음');
     return { authHeader: data.authHeader, baseUrl: data.baseUrl };
   };
+
+  // Zendesk 자격증명 헬퍼
+  const getZendeskAuth = async (userEmail: string): Promise<{ authHeader: string, baseUrl: string }> => {
+    const res = await net.fetch(`${PROXY_BASE_URL}/api/proxy`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userEmail, target: 'zendesk-token' })
+    });
+    if (!res.ok) throw new Error(`Zendesk 인증 실패 (${res.status})`);
+    const data = await res.json();
+    if (!data.baseUrl) throw new Error('Zendesk baseUrl 없음');
+    return { authHeader: data.authHeader, baseUrl: data.baseUrl };
+  };
+
+  // Atlassian / Zendesk 연결 상태 확인 (채팅창 상단 상태 표시용)
+  ipcMain.handle('check-integrations-health', async (_, userEmail: string) => {
+    const checkAtlassian = async (): Promise<boolean> => {
+      try {
+        const { authHeader, baseUrl } = await getAtlassianAuth(userEmail);
+        const res = await nodeHttpsFetch(`${baseUrl}/rest/api/3/myself`, {
+          method: 'GET', headers: { 'Authorization': authHeader, 'Accept': 'application/json' }
+        });
+        return res.ok;
+      } catch { return false; }
+    };
+
+    const checkZendesk = async (): Promise<boolean> => {
+      try {
+        const { authHeader, baseUrl } = await getZendeskAuth(userEmail);
+        const res = await nodeHttpsFetch(`${baseUrl}/api/v2/users/me.json`, {
+          method: 'GET', headers: { 'Authorization': authHeader, 'Accept': 'application/json' }
+        });
+        return res.ok;
+      } catch { return false; }
+    };
+
+    const [atlassian, zendesk] = await Promise.all([checkAtlassian(), checkZendesk()]);
+    return { atlassian, zendesk };
+  });
 
   // 🌟 [기존 코드 유지] 오답노트 검색
   ipcMain.handle('search-error-note', async (_, config, userQuestion) => {

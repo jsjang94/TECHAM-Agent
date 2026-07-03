@@ -1,5 +1,6 @@
 // src/components/ChatWindow.tsx
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
+import techamAgentImg from '../assets/techamAgentImg.png'
 import '../assets/ChatWindow.css'
 
 interface ChatWindowProps {
@@ -36,6 +37,26 @@ export default function ChatWindow({
 }: ChatWindowProps) {
 
   const [form, setForm] = useState(config)
+  const [integrationsHealth, setIntegrationsHealth] = useState<{ atlassian: boolean | null; zendesk: boolean | null }>({ atlassian: null, zendesk: null })
+
+  // 채팅창이 열릴 때 Atlassian / Zendesk 연결 상태를 확인
+  useEffect(() => {
+    const electron = (window as any).electron
+    if (!electron?.ipcRenderer || !config.userEmail) return
+    let cancelled = false
+    setIntegrationsHealth({ atlassian: null, zendesk: null })
+    electron.ipcRenderer.invoke('check-integrations-health', config.userEmail).then((result: { atlassian: boolean; zendesk: boolean }) => {
+      if (!cancelled) setIntegrationsHealth(result)
+    })
+    return () => { cancelled = true }
+  }, [config.userEmail])
+
+  const statusDotStyle = (status: boolean | null) => ({
+    width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0,
+    backgroundColor: status === null ? 'rgba(255,255,255,0.3)' : status ? '#34c759' : '#ff3b30',
+    boxShadow: status === null ? 'none' : status ? '0 0 5px rgba(52,199,89,0.85)' : '0 0 5px rgba(255,59,48,0.85)',
+    animation: status === null ? 'statusPulse 1.4s ease-in-out infinite' : 'none',
+  })
 
   const inputStyle = { width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.2)', backgroundColor: 'rgba(0,0,0,0.2)', color: '#fff', marginBottom: '10px', outline: 'none' }
 
@@ -80,41 +101,44 @@ export default function ChatWindow({
         </div>
       </div>
 
-      <div className="chat-body">
-        {/* 사이드바 (고정) */}
-        <div className="agent-panel">
-          <div>
-            <div style={{ backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: '12px', padding: '12px', border: '1px solid rgba(255,255,255,0.05)', marginBottom: '16px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
-                <div style={{ width: '32px', height: '32px', backgroundColor: '#4a4a4a', borderRadius: '50%', marginRight: '10px', display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '16px' }}>🤖</div>
-                <div>
-                  <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#fff' }}>TECHAM Agent</div>
-                  <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)' }}>통합 시스템 검색</div>
-                </div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: !config.userEmail ? '#ff3b30' : '#ffd700' }}>
-                <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor:
-                  !config.userEmail ? '#ff3b30' :
-                  (isConfiguring && isLoading) ? '#ff9500' :
-                  isLoading ? '#ff9500' : '#34c759'
-                }}></span>
-                {!config.userEmail ? '로그인 필요' :
-                  (isConfiguring && isLoading) ? '로그인 중..' :
-                  isLoading ? '연산/검색 중...' : '대기 중'}
-              </div>
-            </div>
-            
-            <button
-              onClick={() => { if (!config.userEmail) return; setIsErrorNoteOpen(!isErrorNoteOpen); setIsConfiguring(false); }}
-              style={{ width: '100%', textAlign: 'left', background: isErrorNoteOpen ? 'rgba(0,243,255,0.1)' : 'transparent', border: 'none', color: config.userEmail ? (isErrorNoteOpen ? '#00f3ff' : 'rgba(255,255,255,0.7)') : 'rgba(255,255,255,0.2)', padding: '10px', borderRadius: '8px', cursor: config.userEmail ? 'pointer' : 'not-allowed', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              📝 오답노트
-            </button>
+      {/* 🌟 상단 헤더: 로고/타이틀 + 오답노트/설정 아이콘 + 연동 상태 */}
+      <div className="app-header">
+        <div className="app-header-top">
+          <div className="app-header-brand">
+            <img src={techamAgentImg} alt="" className="app-header-logo" />
+            <span className="app-header-title">TechAM</span>
           </div>
-          <button onClick={() => { setIsConfiguring(true); setIsErrorNoteOpen(false); }} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', textAlign: 'left', fontSize: '12px', padding: '8px' }}>⚙️ 시스템 연동 설정</button>
+          <div className="app-header-actions">
+            <button
+              className="app-header-icon-btn"
+              onClick={() => { if (!config.userEmail) return; setIsErrorNoteOpen(!isErrorNoteOpen); setIsConfiguring(false); }}
+              title="오답노트"
+            >📖</button>
+            <button
+              className="app-header-icon-btn"
+              onClick={() => { setIsConfiguring(true); setIsErrorNoteOpen(false); }}
+              title="시스템 연동 설정"
+            >⚙️</button>
+          </div>
         </div>
+        <div className="app-header-status">
+          <span className="status-item">
+            <span style={statusDotStyle(isNetworkReconnecting ? false : true)} />
+            Gemini API {isNetworkReconnecting ? '재연결 중...' : '정상'}
+          </span>
+          <span className="status-item">
+            <span style={statusDotStyle(integrationsHealth.atlassian)} />
+            Atlassian {integrationsHealth.atlassian === null ? '확인 중...' : integrationsHealth.atlassian ? '연결됨' : '연결 실패'}
+          </span>
+          <span className="status-item">
+            <span style={statusDotStyle(integrationsHealth.zendesk)} />
+            Zendesk {integrationsHealth.zendesk === null ? '확인 중...' : integrationsHealth.zendesk ? '연결됨' : '연결 실패'}
+          </span>
+        </div>
+      </div>
 
-        {/* 우측 메인 콘텐츠 */}
-        <div className="main-content">
+      {/* 메인 콘텐츠 */}
+      <div className="main-content">
 
           {isConfiguring ? (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '40px', minHeight: 0, overflow: 'hidden' }}>
@@ -237,7 +261,6 @@ export default function ChatWindow({
             </div>
           )}
         </div>
-      </div>
     </div>
   )
 }

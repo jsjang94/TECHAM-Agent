@@ -51,27 +51,77 @@
 }
 .mac-buttons:hover .mac-icon { color: rgba(0, 0, 0, 0.6); }
 
-/* 3. 하단 바디 영역 */
-.chat-body {
-  display: flex;
-  flex: 1;
-  min-height: 0; /* 🌟 핵심 2: 자식 내용이 길어져도 부모 창을 뚫지 못하게 함 */
-  overflow: hidden; 
+/* 3. 상단 헤더: 로고/타이틀 + 오답노트/설정 아이콘 + 연동 상태 */
+.app-header {
+  flex-shrink: 0;
+  background-color: #252527;
+  border-bottom: 1px solid #3c3c3e;
+  padding: 12px 20px;
 }
 
-/* 좌측 사이드바 */
-.agent-panel {
-  width: 220px;
-  flex-shrink: 0; /* 🌟 사이드바도 찌그러지지 않게 방어 */
-  background-color: #252527; 
-  border-right: 1px solid #3c3c3e;
-  padding: 16px;
+.app-header-top {
   display: flex;
-  flex-direction: column;
+  align-items: center;
   justify-content: space-between;
 }
 
-/* 4. 우측 메인 콘텐츠 */
+.app-header-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.app-header-logo {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.app-header-title {
+  font-size: 15px;
+  font-weight: bold;
+  color: #fff;
+}
+
+.app-header-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.app-header-icon-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s;
+}
+.app-header-icon-btn:hover { background-color: rgba(255, 255, 255, 0.1); }
+
+.app-header-status {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.55);
+  white-space: nowrap;
+}
+
+/* 4. 메인 콘텐츠 */
 .main-content {
   flex: 1;
   display: flex;
