@@ -1,5 +1,6 @@
 // src/components/ChatWindow.tsx
 import React, { useState } from 'react'
+import { Settings, BookOpen, Send, Circle } from 'lucide-react'
 import techamAgentImg from '../assets/techamAgentImg.png'
 import '../assets/ChatWindow.css'
 
@@ -39,12 +40,17 @@ export default function ChatWindow({
 
   const [form, setForm] = useState(config)
 
-  const statusDotStyle = (status: boolean | null | 'warn') => ({
-    width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0,
-    backgroundColor: status === 'warn' ? '#ff9f0a' : status === null ? 'rgba(255,255,255,0.3)' : status ? '#34c759' : '#ff3b30',
-    boxShadow: status === 'warn' ? '0 0 5px rgba(255,159,10,0.85)' : status === null ? 'none' : status ? '0 0 5px rgba(52,199,89,0.85)' : '0 0 5px rgba(255,59,48,0.85)',
-    animation: (status === 'warn' || status === null) ? 'statusPulse 1.4s ease-in-out infinite' : 'none',
-  })
+  const statusColor = (status: boolean | null | 'warn') =>
+    status === 'warn' ? '#ff9f0a' : status === null ? 'rgba(255,255,255,0.3)' : status ? '#34c759' : '#ff3b30'
+
+  const StatusDot = ({ status }: { status: boolean | null | 'warn' }) => (
+    <Circle
+      size={8}
+      color={statusColor(status)}
+      fill={statusColor(status)}
+      style={{ flexShrink: 0, animation: (status === 'warn' || status === null) ? 'statusPulse 1.4s ease-in-out infinite' : 'none' }}
+    />
+  )
 
   const inputStyle = { width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.2)', backgroundColor: 'rgba(0,0,0,0.2)', color: '#fff', marginBottom: '10px', outline: 'none' }
 
@@ -101,25 +107,25 @@ export default function ChatWindow({
               className="app-header-icon-btn"
               onClick={() => { if (!config.userEmail) return; setIsErrorNoteOpen(!isErrorNoteOpen); setIsConfiguring(false); }}
               title="오답노트"
-            >📖</button>
+            ><BookOpen size={16} /></button>
             <button
               className="app-header-icon-btn"
               onClick={() => { setIsConfiguring(true); setIsErrorNoteOpen(false); }}
               title="시스템 연동 설정"
-            >⚙️</button>
+            ><Settings size={16} /></button>
           </div>
         </div>
         <div className="app-header-status">
           <span className="status-item">
-            <span style={statusDotStyle(isNetworkReconnecting ? 'warn' : integrationsHealth.gemini)} />
+            <StatusDot status={isNetworkReconnecting ? 'warn' : integrationsHealth.gemini} />
             Gemini API {isNetworkReconnecting ? '재연결 중...' : integrationsHealth.gemini === null ? '확인 중...' : integrationsHealth.gemini ? '정상' : '연결 실패'}
           </span>
           <span className="status-item">
-            <span style={statusDotStyle(integrationsHealth.atlassian)} />
+            <StatusDot status={integrationsHealth.atlassian} />
             Atlassian {integrationsHealth.atlassian === null ? '확인 중...' : integrationsHealth.atlassian ? '연결됨' : '연결 실패'}
           </span>
           <span className="status-item">
-            <span style={statusDotStyle(integrationsHealth.zendesk)} />
+            <StatusDot status={integrationsHealth.zendesk} />
             Zendesk {integrationsHealth.zendesk === null ? '확인 중...' : integrationsHealth.zendesk ? '연결됨' : '연결 실패'}
           </span>
         </div>
@@ -239,9 +245,9 @@ export default function ChatWindow({
                   />
                   <button
                     onClick={handleSend}
-                    disabled={isLoading || isNetworkReconnecting || !inputText.trim()} 
-                    style={{ width: '32px', height: '32px', backgroundColor: inputText.trim() ? '#00f3ff' : 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '8px', color: inputText.trim() ? '#000' : '#fff', cursor: inputText.trim() ? 'pointer' : 'default', marginLeft: '8px' }}>
-                    ↑
+                    disabled={isLoading || isNetworkReconnecting || !inputText.trim()}
+                    style={{ width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: inputText.trim() ? '#00f3ff' : 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '8px', color: inputText.trim() ? '#000' : '#fff', cursor: inputText.trim() ? 'pointer' : 'default', marginLeft: '8px' }}>
+                    <Send size={16} />
                   </button>
                 </div>
               </div>
