@@ -5,8 +5,10 @@ import LoginPopup from './components/LoginPopup'
 import AlertModal from './components/AlertModal'
 import './assets/main.css'
 
+const WELCOME_MESSAGE = '모든 시스템과 정상적으로 연결되었습니다. 무엇을 검색할까요?'
+
 const safeParse = (key: string, defaultVal: string[]) => {
-  try { return JSON.parse(localStorage.getItem(key) || 'null') || defaultVal; } 
+  try { return JSON.parse(localStorage.getItem(key) || 'null') || defaultVal; }
   catch { return defaultVal; }
 }
 
@@ -44,6 +46,7 @@ export default function App() {
   const hasSessionRef = useRef(false)
   const [alertModal, setAlertModal] = useState<{ emoji: string; message: string } | null>(null)
   const showAlert = (emoji: string, message: string) => setAlertModal({ emoji, message })
+  const [integrationsHealth, setIntegrationsHealth] = useState<{ gemini: boolean | null; atlassian: boolean | null; zendesk: boolean | null }>({ gemini: null, atlassian: null, zendesk: null })
 
   // 채팅창 CSS 드래그용 refs
   const chatRef = useRef<HTMLDivElement>(null)
@@ -74,12 +77,22 @@ export default function App() {
     }
   }, [])
 
-  // 기존 사용자(이미 이메일 연동됨)는 앱 시작 시 바로 웰컴 메시지 표시
+  // 채팅창이 열려 있는 동안 Gemini/Atlassian/Zendesk 연결 상태를 확인하고,
+  // 셋 다 정상일 때만 웰컴 메시지를 표시 (시작하자마자 무조건 뜨지 않게)
   useEffect(() => {
-    if (config.userEmail) {
-      setMessages([{ text: '모든 시스템과 직통 연결되었습니다. 무엇을 검색할까요?', isBot: true, isSystem: false }])
-    }
-  }, [])
+    const electron = (window as any).electron
+    if (!isChatOpen || !config.userEmail || !electron?.ipcRenderer) return
+    let cancelled = false
+    setIntegrationsHealth({ gemini: null, atlassian: null, zendesk: null })
+    electron.ipcRenderer.invoke('check-integrations-health', config.userEmail).then((result: { gemini: boolean; atlassian: boolean; zendesk: boolean }) => {
+      if (cancelled) return
+      setIntegrationsHealth(result)
+      if (result.gemini && result.atlassian && result.zendesk) {
+        setMessages(prev => prev.length === 0 ? [{ text: WELCOME_MESSAGE, isBot: true, isSystem: false }] : prev)
+      }
+    })
+    return () => { cancelled = true }
+  }, [isChatOpen, config.userEmail])
 
   useEffect(() => {
     const chatArea = document.getElementById('chat-scroll-area');
@@ -280,7 +293,7 @@ export default function App() {
         }
 
         let pureHistory = messages
-          .filter(m => !m.isSystem && m.text !== '모든 시스템과 직통 연결되었습니다. 무엇을 검색할까요?')
+          .filter(m => !m.isSystem && m.text !== WELCOME_MESSAGE)
           .slice(-2)
           .map(m => ({ role: m.isBot ? "model" : "user", parts: [{ text: m.text }] }));
         if (pureHistory.length > 0 && pureHistory[0].role === 'model') pureHistory.shift();
@@ -412,6 +425,7 @@ export default function App() {
             messages={messages as any} isLoading={isLoading} inputText={inputText} setInputText={setInputText}
             handleSend={handleSend} handleKeyDown={handleKeyDown}
             isNetworkReconnecting={isNetworkReconnecting}
+            integrationsHealth={integrationsHealth}
             isErrorNoteOpen={isErrorNoteOpen} setIsErrorNoteOpen={setIsErrorNoteOpen}
             errorNoteForm={errorNoteForm} setErrorNoteForm={setErrorNoteForm} submitErrorNote={submitErrorNote}
             onTitlebarMouseDown={handleTitlebarMouseDown}

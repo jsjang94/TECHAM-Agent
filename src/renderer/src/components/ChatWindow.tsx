@@ -1,5 +1,5 @@
 // src/components/ChatWindow.tsx
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import techamAgentImg from '../assets/techamAgentImg.png'
 import '../assets/ChatWindow.css'
 
@@ -26,6 +26,7 @@ interface ChatWindowProps {
   onMinimize: () => void
   onMaximize: () => void
   isNetworkReconnecting?: boolean
+  integrationsHealth: { gemini: boolean | null; atlassian: boolean | null; zendesk: boolean | null }
 }
 
 export default function ChatWindow({
@@ -33,29 +34,16 @@ export default function ChatWindow({
   messages, isLoading, inputText, setInputText, handleSend, handleKeyDown,
   isErrorNoteOpen, setIsErrorNoteOpen, errorNoteForm, setErrorNoteForm, submitErrorNote,
   onTitlebarMouseDown, isChatMinimized, isChatMaximized, onMinimize, onMaximize,
-  isNetworkReconnecting = false
+  isNetworkReconnecting = false, integrationsHealth
 }: ChatWindowProps) {
 
   const [form, setForm] = useState(config)
-  const [integrationsHealth, setIntegrationsHealth] = useState<{ atlassian: boolean | null; zendesk: boolean | null }>({ atlassian: null, zendesk: null })
 
-  // 채팅창이 열릴 때 Atlassian / Zendesk 연결 상태를 확인
-  useEffect(() => {
-    const electron = (window as any).electron
-    if (!electron?.ipcRenderer || !config.userEmail) return
-    let cancelled = false
-    setIntegrationsHealth({ atlassian: null, zendesk: null })
-    electron.ipcRenderer.invoke('check-integrations-health', config.userEmail).then((result: { atlassian: boolean; zendesk: boolean }) => {
-      if (!cancelled) setIntegrationsHealth(result)
-    })
-    return () => { cancelled = true }
-  }, [config.userEmail])
-
-  const statusDotStyle = (status: boolean | null) => ({
+  const statusDotStyle = (status: boolean | null | 'warn') => ({
     width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0,
-    backgroundColor: status === null ? 'rgba(255,255,255,0.3)' : status ? '#34c759' : '#ff3b30',
-    boxShadow: status === null ? 'none' : status ? '0 0 5px rgba(52,199,89,0.85)' : '0 0 5px rgba(255,59,48,0.85)',
-    animation: status === null ? 'statusPulse 1.4s ease-in-out infinite' : 'none',
+    backgroundColor: status === 'warn' ? '#ff9f0a' : status === null ? 'rgba(255,255,255,0.3)' : status ? '#34c759' : '#ff3b30',
+    boxShadow: status === 'warn' ? '0 0 5px rgba(255,159,10,0.85)' : status === null ? 'none' : status ? '0 0 5px rgba(52,199,89,0.85)' : '0 0 5px rgba(255,59,48,0.85)',
+    animation: (status === 'warn' || status === null) ? 'statusPulse 1.4s ease-in-out infinite' : 'none',
   })
 
   const inputStyle = { width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.2)', backgroundColor: 'rgba(0,0,0,0.2)', color: '#fff', marginBottom: '10px', outline: 'none' }
@@ -123,8 +111,8 @@ export default function ChatWindow({
         </div>
         <div className="app-header-status">
           <span className="status-item">
-            <span style={statusDotStyle(isNetworkReconnecting ? false : true)} />
-            Gemini API {isNetworkReconnecting ? '재연결 중...' : '정상'}
+            <span style={statusDotStyle(isNetworkReconnecting ? 'warn' : integrationsHealth.gemini)} />
+            Gemini API {isNetworkReconnecting ? '재연결 중...' : integrationsHealth.gemini === null ? '확인 중...' : integrationsHealth.gemini ? '정상' : '연결 실패'}
           </span>
           <span className="status-item">
             <span style={statusDotStyle(integrationsHealth.atlassian)} />

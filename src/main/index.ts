@@ -219,16 +219,37 @@ app.whenReady().then(() => {
     return { authHeader: data.authHeader, baseUrl: data.baseUrl };
   };
 
-  // Atlassian / Zendesk 연결 상태 확인 (채팅창 상단 상태 표시용)
+  // Gemini / Atlassian / Zendesk 연결 상태 확인 (채팅창 상단 상태 표시용)
   ipcMain.handle('check-integrations-health', async (_, userEmail: string) => {
+    const checkGemini = async (): Promise<boolean> => {
+      try {
+        // 모델 목록 조회 — 토큰을 소모하지 않는 가장 가벼운 엔드포인트로 연결만 확인
+        const res = await net.fetch(`${PROXY_BASE_URL}/api/gemini/v1beta/models`, {
+          method: 'GET',
+          headers: { 'x-user-email': userEmail }
+        });
+        console.log(`[Health/Gemini] 응답 상태: ${res.status}`);
+        if (!res.ok) console.error(`[Health/Gemini] 실패 응답 바디: ${(await res.text()).substring(0, 500)}`);
+        return res.ok;
+      } catch (err: any) {
+        console.error(`[Health/Gemini] 예외 발생: ${err.message}`);
+        return false;
+      }
+    };
+
     const checkAtlassian = async (): Promise<boolean> => {
       try {
         const { authHeader, baseUrl } = await getAtlassianAuth(userEmail);
         const res = await nodeHttpsFetch(`${baseUrl}/rest/api/3/myself`, {
           method: 'GET', headers: { 'Authorization': authHeader, 'Accept': 'application/json' }
         });
+        console.log(`[Health/Atlassian] 응답 상태: ${res.status}`);
+        if (!res.ok) console.error(`[Health/Atlassian] 실패 응답 바디: ${(await res.text()).substring(0, 500)}`);
         return res.ok;
-      } catch { return false; }
+      } catch (err: any) {
+        console.error(`[Health/Atlassian] 예외 발생: ${err.message}`);
+        return false;
+      }
     };
 
     const checkZendesk = async (): Promise<boolean> => {
@@ -237,12 +258,17 @@ app.whenReady().then(() => {
         const res = await nodeHttpsFetch(`${baseUrl}/api/v2/users/me.json`, {
           method: 'GET', headers: { 'Authorization': authHeader, 'Accept': 'application/json' }
         });
+        console.log(`[Health/Zendesk] 응답 상태: ${res.status}`);
+        if (!res.ok) console.error(`[Health/Zendesk] 실패 응답 바디: ${(await res.text()).substring(0, 500)}`);
         return res.ok;
-      } catch { return false; }
+      } catch (err: any) {
+        console.error(`[Health/Zendesk] 예외 발생: ${err.message}`);
+        return false;
+      }
     };
 
-    const [atlassian, zendesk] = await Promise.all([checkAtlassian(), checkZendesk()]);
-    return { atlassian, zendesk };
+    const [gemini, atlassian, zendesk] = await Promise.all([checkGemini(), checkAtlassian(), checkZendesk()]);
+    return { gemini, atlassian, zendesk };
   });
 
   // 🌟 [기존 코드 유지] 오답노트 검색
