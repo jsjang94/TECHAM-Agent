@@ -1,3 +1,9 @@
+:root {
+  /* Hive 브랜드 블루 */
+  --hive-blue: #1877f2;
+  --hive-blue-rgb: 24, 119, 242;
+}
+
 html, body, #root {
   margin: 0;
   padding: 0;

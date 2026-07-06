@@ -106,12 +106,12 @@ export default function ChatWindow({
             <button
               className="app-header-icon-btn"
               onClick={() => { if (!config.userEmail) return; setIsErrorNoteOpen(!isErrorNoteOpen); setIsConfiguring(false); }}
-              title="오답노트"
+              title="팀 위키"
             ><BookOpen size={16} /></button>
             <button
               className="app-header-icon-btn"
               onClick={() => { setIsConfiguring(true); setIsErrorNoteOpen(false); }}
-              title="시스템 연동 설정"
+              title="Atlassian 연동 설정"
             ><Settings size={16} /></button>
           </div>
         </div>
@@ -142,58 +142,58 @@ export default function ChatWindow({
               </p>
               
               <div style={{ flex: 1, overflowY: 'auto', paddingRight: '10px' }}>
-                <p style={{ color: '#00f3ff', fontSize: '12px', marginBottom: '4px' }}>1. Jira 타겟 스페이스</p>
+                <p style={{ color: 'var(--hive-blue)', fontSize: '12px', marginBottom: '4px' }}>1. Jira 타겟 스페이스</p>
                 {form.jiraSpaces.map((space: string, idx: number) => ( 
                   <div key={idx} style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
                     <input value={space} onChange={e => handleArrayChange('jiraSpaces', idx, e.target.value)} style={{ ...inputStyle, marginBottom: 0 }} />
                     {form.jiraSpaces.length > 1 && <button onClick={() => removeArrayItem('jiraSpaces', idx)} style={{ background:'none', border:'none', color:'#fff', cursor:'pointer' }}>✕</button>}
                   </div> 
                 ))} 
-                <button onClick={() => addArrayItem('jiraSpaces')} style={{ background:'none', border:'none', color:'#00f3ff', cursor:'pointer', fontSize: '12px' }}>+ 추가</button>
+                <button onClick={() => addArrayItem('jiraSpaces')} style={{ background:'none', border:'none', color:'var(--hive-blue)', cursor:'pointer', fontSize: '12px' }}>+ 추가</button>
 
-                <p style={{ color: '#00f3ff', fontSize: '12px', marginBottom: '4px', marginTop: '16px' }}>2. Confluence 타겟 스페이스</p>
+                <p style={{ color: 'var(--hive-blue)', fontSize: '12px', marginBottom: '4px', marginTop: '16px' }}>2. Confluence 타겟 스페이스</p>
                 {form.confSpaces.map((space: string, idx: number) => ( 
                   <div key={idx} style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
                     <input value={space} onChange={e => handleArrayChange('confSpaces', idx, e.target.value)} style={{ ...inputStyle, marginBottom: 0 }} />
                     {form.confSpaces.length > 1 && <button onClick={() => removeArrayItem('confSpaces', idx)} style={{ background:'none', border:'none', color:'#fff', cursor:'pointer' }}>✕</button>}
                   </div> 
                 ))} 
-                <button onClick={() => addArrayItem('confSpaces')} style={{ background:'none', border:'none', color:'#00f3ff', cursor:'pointer', fontSize: '12px' }}>+ 추가</button>
+                <button onClick={() => addArrayItem('confSpaces')} style={{ background:'none', border:'none', color:'var(--hive-blue)', cursor:'pointer', fontSize: '12px' }}>+ 추가</button>
               </div>
               
-              <button onClick={() => saveConfigAndConnect(form)} disabled={isLoading} style={{ width: '100%', padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: '#00f3ff', color: '#000', fontWeight: 'bold', cursor: 'pointer', marginTop: '20px', flexShrink: 0 }}>
+              <button onClick={() => saveConfigAndConnect(form)} disabled={isLoading} style={{ width: '100%', padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: 'var(--hive-blue)', color: '#fff', fontWeight: 'bold', cursor: 'pointer', marginTop: '20px', flexShrink: 0 }}>
                 {isLoading ? '설정 및 가동 중...' : '저장 및 가동'}
               </button>
             </div>
           ) : isErrorNoteOpen ? (
             /* 💡 오답노트 화면 (안쪽 옵션들만 스크롤) */
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '40px', minHeight: 0, overflow: 'hidden' }}>
-              <h3 style={{ color: '#fff', marginBottom: '8px', flexShrink: 0 }}>📝 오답노트 등록</h3>
-              <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '12px', marginBottom: '24px', flexShrink: 0 }}>AI가 헛소리한 내용을 교정하여 기록합니다.</p>
+              <h3 style={{ color: '#fff', marginBottom: '8px', flexShrink: 0 }}>📝 팀 위키 문서 등록</h3>
+              <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '12px', marginBottom: '24px', flexShrink: 0 }}>팀원들에게 공유할 내용을 기록합니다.</p>
               
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto', paddingRight: '10px' }}>
-                <p style={{ color: '#00f3ff', fontSize: '12px', marginBottom: '4px' }}>1. 등록자</p>
+                <p style={{ color: '#fff', fontSize: '12px', marginBottom: '4px' }}>1. 등록자</p>
                 <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
                   <input value={errorNoteForm.author} onChange={e => setErrorNoteForm({...errorNoteForm, author: e.target.value})} style={{ ...inputStyle, marginBottom: 0 }} />
                 </div>
 
-                <p style={{ color: '#00f3ff', fontSize: '12px', marginBottom: '4px' }}>2. 질문(키워드)</p>
+                <p style={{ color: '#fff', fontSize: '12px', marginBottom: '4px' }}>2. 질문(키워드)</p>
                 <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
                   <textarea value={errorNoteForm.question} onChange={e => setErrorNoteForm({...errorNoteForm, question: e.target.value})} style={{ ...inputStyle, marginBottom: 0, height: '60px', resize: 'vertical' }} />
                 </div>
 
-                <p style={{ color: '#00f3ff', fontSize: '12px', marginBottom: '4px' }}>3. 올바른 답변</p>
+                <p style={{ color: '#fff', fontSize: '12px', marginBottom: '4px' }}>3. 올바른 답변</p>
                 <div style={{ display: 'flex', gap: '8px', marginBottom: '10px', flex: 1 }}>
                   <textarea value={errorNoteForm.answer} onChange={e => setErrorNoteForm({...errorNoteForm, answer: e.target.value})} style={{ ...inputStyle, marginBottom: 0, flex: 1, minHeight: '80px', resize: 'vertical' }} />
                 </div>
 
-                <p style={{ color: '#00f3ff', fontSize: '12px', marginBottom: '4px' }}>4. 참고 링크 (선택)</p>
+                <p style={{ color: '#fff', fontSize: '12px', marginBottom: '4px' }}>4. 참고 링크 (선택)</p>
                 <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
                   <input value={errorNoteForm.link} onChange={e => setErrorNoteForm({...errorNoteForm, link: e.target.value})} style={{ ...inputStyle, marginBottom: 0 }} />
                 </div>
               </div>
               
-              <button onClick={submitErrorNote} disabled={isLoading} style={{ width: '100%', padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: '#00f3ff', color: '#000', fontWeight: 'bold', cursor: 'pointer', marginTop: '20px', flexShrink: 0 }}>
+              <button onClick={submitErrorNote} disabled={isLoading} style={{ width: '100%', padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: 'var(--hive-blue)', color: '#fff', fontWeight: 'bold', cursor: 'pointer', marginTop: '20px', flexShrink: 0 }}>
                 {isLoading ? 'DB에 등록 중...' : '규칙 등록하기'}
               </button>
             </div>
@@ -212,7 +212,7 @@ export default function ChatWindow({
               <div id="chat-scroll-area" style={{ flex: 1, padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 {messages.map((msg, idx) => (
                   <div key={idx} style={{ display: 'flex', flexDirection: 'column', alignItems: msg.isBot ? 'flex-start' : 'flex-end' }}>
-                    <div style={{ maxWidth: '80%', padding: '12px 16px', borderRadius: '12px', fontSize: '14px', lineHeight: '1.5', backgroundColor: msg.isSystem ? 'transparent' : (msg.isBot ? 'rgba(255,255,255,0.1)' : '#00f3ff'), color: msg.isSystem ? 'rgba(0, 243, 255, 0.8)' : (msg.isBot ? '#fff' : '#000'), border: msg.isSystem ? '1px dashed rgba(0, 243, 255, 0.4)' : 'none', borderBottomLeftRadius: msg.isBot ? '4px' : '12px', borderBottomRightRadius: msg.isBot ? '12px' : '4px', whiteSpace: 'pre-wrap' }}>
+                    <div style={{ maxWidth: '80%', padding: '12px 16px', borderRadius: '12px', fontSize: '14px', lineHeight: '1.5', backgroundColor: msg.isSystem ? 'transparent' : (msg.isBot ? 'rgba(255,255,255,0.1)' : 'var(--hive-blue)'), color: msg.isSystem ? 'rgba(var(--hive-blue-rgb), 0.85)' : '#fff', border: msg.isSystem ? '1px dashed rgba(var(--hive-blue-rgb), 0.4)' : 'none', borderBottomLeftRadius: msg.isBot ? '4px' : '12px', borderBottomRightRadius: msg.isBot ? '12px' : '4px', whiteSpace: 'pre-wrap' }}>
                       {msg.text}
                     </div>
                     {msg.isBot && !msg.isSystem && (
@@ -224,7 +224,7 @@ export default function ChatWindow({
                           setIsConfiguring(false);
                         }}
                         style={{ marginTop: '4px', background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        📝 오답노트 작성
+                        📝 팀 위키 작성
                       </button>
                     )}
                   </div>
@@ -236,7 +236,7 @@ export default function ChatWindow({
                 <div style={{ display: 'flex', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.25)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)', padding: '4px 4px 4px 16px' }}>
                   <input 
                     type="text" 
-                    placeholder="시스템에 질문하세요..." 
+                    placeholder="문제를 해결합시다!" 
                     value={inputText} 
                     onChange={(e) => setInputText(e.target.value)} 
                     onKeyDown={handleKeyDown} 
@@ -246,7 +246,7 @@ export default function ChatWindow({
                   <button
                     onClick={handleSend}
                     disabled={isLoading || isNetworkReconnecting || !inputText.trim()}
-                    style={{ width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: inputText.trim() ? '#00f3ff' : 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '8px', color: inputText.trim() ? '#000' : '#fff', cursor: inputText.trim() ? 'pointer' : 'default', marginLeft: '8px' }}>
+                    style={{ width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: inputText.trim() ? 'var(--hive-blue)' : 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '8px', color: '#fff', cursor: inputText.trim() ? 'pointer' : 'default', marginLeft: '8px' }}>
                     <Send size={16} />
                   </button>
                 </div>

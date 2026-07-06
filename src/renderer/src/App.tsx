@@ -289,7 +289,7 @@ export default function App() {
         const errorNoteRule = await electron.ipcRenderer.invoke('search-error-note', config, userMsg);
         if (errorNoteRule) {
           finalMessageForAI = `${errorNoteRule}\n\n사용자 질문: ${userMsg}`;
-          setMessages(prev => [...prev, { text: `💡 (관련된 오답노트를 발견하여 문맥을 분석합니다)`, isBot: true, isSystem: true }]);
+          setMessages(prev => [...prev, { text: `💡 (관련된 내용을 발견하여 문맥을 분석합니다)`, isBot: true, isSystem: true }]);
         }
 
         let pureHistory = messages
@@ -314,7 +314,7 @@ export default function App() {
       const res = await electron.ipcRenderer.invoke('write-error-note', config, errorNoteForm);
       setIsLoading(false);
       if (res.success) {
-        showAlert('📝', '오답노트가 성공적으로 추가되었습니다!');
+        showAlert('📝', '팀 위키 문서에 성공적으로 추가되었습니다!');
         setIsErrorNoteOpen(false);
         setErrorNoteForm({ author: '', question: '', answer: '', link: '' });
       } else if (res.isConflict) showAlert('⚡', '충돌이 발생했습니다.\n다시 시도해주세요.');

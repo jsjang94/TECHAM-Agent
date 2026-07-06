@@ -82,7 +82,7 @@ export default function LoginPopup({ onSuccess, onLoginStart, onLoginFail }: Log
         <button
           onClick={handleLogin}
           disabled={isLoading}
-          style={{ width: '100%', padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: isLoading ? 'rgba(0,243,255,0.5)' : '#00f3ff', color: '#000', fontWeight: 'bold', cursor: isLoading ? 'default' : 'pointer', fontSize: '14px' }}
+          style={{ width: '100%', padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: isLoading ? 'rgba(var(--hive-blue-rgb), 0.5)' : 'var(--hive-blue)', color: '#fff', fontWeight: 'bold', cursor: isLoading ? 'default' : 'pointer', fontSize: '14px' }}
         >
           {isLoading ? '로그인 중...' : '로그인'}
         </button>
