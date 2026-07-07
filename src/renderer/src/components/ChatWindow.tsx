@@ -1,7 +1,6 @@
 // src/components/ChatWindow.tsx
 import React, { useState } from 'react'
 import { Settings, BookOpen, Send, Circle } from 'lucide-react'
-import techamAgentImg from '../assets/techamAgentImg.png'
 import '../assets/ChatWindow.css'
 
 interface ChatWindowProps {
@@ -95,39 +94,36 @@ export default function ChatWindow({
         </div>
       </div>
 
-      {/* 🌟 상단 헤더: 로고/타이틀 + 오답노트/설정 아이콘 + 연동 상태 */}
+      {/* 🌟 상단 헤더: 타이틀/상태(세로 배치) + 오답노트/설정 아이콘 */}
       <div className="app-header">
-        <div className="app-header-top">
-          <div className="app-header-brand">
-            <img src={techamAgentImg} alt="" className="app-header-logo" />
-            <span className="app-header-title">TechAM</span>
-          </div>
-          <div className="app-header-actions">
-            <button
-              className="app-header-icon-btn"
-              onClick={() => { if (!config.userEmail) return; setIsErrorNoteOpen(!isErrorNoteOpen); setIsConfiguring(false); }}
-              title="팀 위키"
-            ><BookOpen size={16} /></button>
-            <button
-              className="app-header-icon-btn"
-              onClick={() => { setIsConfiguring(true); setIsErrorNoteOpen(false); }}
-              title="Atlassian 연동 설정"
-            ><Settings size={16} /></button>
+        <div className="app-header-main">
+          <span className="app-header-title">TECHAM AGENT</span>
+          <div className="app-header-status">
+            <span className="status-item">
+              <StatusDot status={isNetworkReconnecting ? 'warn' : integrationsHealth.gemini} />
+              Gemini API {isNetworkReconnecting ? '재연결 중...' : integrationsHealth.gemini === null ? '확인 중...' : integrationsHealth.gemini ? '정상' : '연결 실패'}
+            </span>
+            <span className="status-item">
+              <StatusDot status={integrationsHealth.atlassian} />
+              Atlassian {integrationsHealth.atlassian === null ? '확인 중...' : integrationsHealth.atlassian ? '연결됨' : '연결 실패'}
+            </span>
+            <span className="status-item">
+              <StatusDot status={integrationsHealth.zendesk} />
+              Zendesk {integrationsHealth.zendesk === null ? '확인 중...' : integrationsHealth.zendesk ? '연결됨' : '연결 실패'}
+            </span>
           </div>
         </div>
-        <div className="app-header-status">
-          <span className="status-item">
-            <StatusDot status={isNetworkReconnecting ? 'warn' : integrationsHealth.gemini} />
-            Gemini API {isNetworkReconnecting ? '재연결 중...' : integrationsHealth.gemini === null ? '확인 중...' : integrationsHealth.gemini ? '정상' : '연결 실패'}
-          </span>
-          <span className="status-item">
-            <StatusDot status={integrationsHealth.atlassian} />
-            Atlassian {integrationsHealth.atlassian === null ? '확인 중...' : integrationsHealth.atlassian ? '연결됨' : '연결 실패'}
-          </span>
-          <span className="status-item">
-            <StatusDot status={integrationsHealth.zendesk} />
-            Zendesk {integrationsHealth.zendesk === null ? '확인 중...' : integrationsHealth.zendesk ? '연결됨' : '연결 실패'}
-          </span>
+        <div className="app-header-actions">
+          <button
+            className="app-header-icon-btn"
+            onClick={() => { if (!config.userEmail) return; setIsErrorNoteOpen(!isErrorNoteOpen); setIsConfiguring(false); }}
+            title="팀 위키"
+          ><BookOpen size={16} /></button>
+          <button
+            className="app-header-icon-btn"
+            onClick={() => { setIsConfiguring(true); setIsErrorNoteOpen(false); }}
+            title="Atlassian 연동 설정"
+          ><Settings size={16} /></button>
         </div>
       </div>
 
@@ -161,7 +157,7 @@ export default function ChatWindow({
                 <button onClick={() => addArrayItem('confSpaces')} style={{ background:'none', border:'none', color:'var(--hive-blue)', cursor:'pointer', fontSize: '12px' }}>+ 추가</button>
               </div>
               
-              <button onClick={() => saveConfigAndConnect(form)} disabled={isLoading} style={{ width: '100%', padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: 'var(--hive-blue)', color: '#fff', fontWeight: 'bold', cursor: 'pointer', marginTop: '20px', flexShrink: 0 }}>
+              <button onClick={() => saveConfigAndConnect(form)} disabled={isLoading} style={{ width: '20%', alignSelf: 'center', padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: 'var(--hive-blue)', color: '#fff', fontWeight: 'bold', cursor: 'pointer', marginTop: '20px', flexShrink: 0 }}>
                 {isLoading ? '설정 및 가동 중...' : '설정 저장'}
               </button>
             </div>
@@ -193,8 +189,8 @@ export default function ChatWindow({
                 </div>
               </div>
               
-              <button onClick={submitErrorNote} disabled={isLoading} style={{ width: '100%', padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: 'var(--hive-blue)', color: '#fff', fontWeight: 'bold', cursor: 'pointer', marginTop: '20px', flexShrink: 0 }}>
-                {isLoading ? 'DB에 등록 중...' : '규칙 등록하기'}
+              <button onClick={submitErrorNote} disabled={isLoading} style={{ width: '20%', alignSelf: 'center', padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: 'var(--hive-blue)', color: '#fff', fontWeight: 'bold', cursor: 'pointer', marginTop: '20px', flexShrink: 0 }}>
+                {isLoading ? '위키에 등록 중...' : '등록하기'}
               </button>
             </div>
 

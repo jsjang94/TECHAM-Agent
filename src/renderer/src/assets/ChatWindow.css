@@ -51,35 +51,27 @@
 }
 .mac-buttons:hover .mac-icon { color: rgba(0, 0, 0, 0.6); }
 
-/* 3. 상단 헤더: 로고/타이틀 + 오답노트/설정 아이콘 + 연동 상태 */
+/* 3. 상단 헤더: 타이틀/상태(세로 배치) + 오답노트/설정 아이콘 */
 .app-header {
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
   background-color: #252527;
   border-bottom: 1px solid #3c3c3e;
   padding: 12px 20px;
 }
 
-.app-header-top {
+.app-header-main {
+  flex: 1;
+  min-width: 0;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.app-header-brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.app-header-logo {
-  width: 28px;
-  height: 28px;
-  object-fit: contain;
-  flex-shrink: 0;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .app-header-title {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: bold;
   color: #fff;
 }
@@ -109,14 +101,13 @@
   display: flex;
   align-items: center;
   gap: 16px;
-  margin-top: 8px;
 }
 
 .status-item {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-size: 12px;
   color: rgba(255, 255, 255, 0.55);
   white-space: nowrap;
 }
