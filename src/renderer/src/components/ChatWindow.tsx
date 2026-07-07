@@ -136,13 +136,13 @@ export default function ChatWindow({
 
           {isConfiguring ? (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '40px', minHeight: 0, overflow: 'hidden' }}>
-              <h3 style={{ color: '#fff', marginBottom: '8px', flexShrink: 0 }}>시스템 연동 설정</h3>
+              <h3 style={{ color: '#fff', marginBottom: '8px', flexShrink: 0 }}>스페이스 연동 설정</h3>
               <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '12px', marginBottom: '24px', flexShrink: 0 }}>
-                검색 대상 스페이스를 설정하세요. 모든 통신은 보안 프록시를 통해 처리됩니다.
+                검색 대상 스페이스를 설정하세요.
               </p>
               
               <div style={{ flex: 1, overflowY: 'auto', paddingRight: '10px' }}>
-                <p style={{ color: 'var(--hive-blue)', fontSize: '12px', marginBottom: '4px' }}>1. Jira 타겟 스페이스</p>
+                <p style={{ color: '#fff', fontSize: '12px', marginBottom: '4px' }}>1. Jira 타겟 스페이스</p>
                 {form.jiraSpaces.map((space: string, idx: number) => ( 
                   <div key={idx} style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
                     <input value={space} onChange={e => handleArrayChange('jiraSpaces', idx, e.target.value)} style={{ ...inputStyle, marginBottom: 0 }} />
@@ -151,7 +151,7 @@ export default function ChatWindow({
                 ))} 
                 <button onClick={() => addArrayItem('jiraSpaces')} style={{ background:'none', border:'none', color:'var(--hive-blue)', cursor:'pointer', fontSize: '12px' }}>+ 추가</button>
 
-                <p style={{ color: 'var(--hive-blue)', fontSize: '12px', marginBottom: '4px', marginTop: '16px' }}>2. Confluence 타겟 스페이스</p>
+                <p style={{ color: '#fff', fontSize: '12px', marginBottom: '4px', marginTop: '16px' }}>2. Confluence 타겟 스페이스</p>
                 {form.confSpaces.map((space: string, idx: number) => ( 
                   <div key={idx} style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
                     <input value={space} onChange={e => handleArrayChange('confSpaces', idx, e.target.value)} style={{ ...inputStyle, marginBottom: 0 }} />
@@ -162,7 +162,7 @@ export default function ChatWindow({
               </div>
               
               <button onClick={() => saveConfigAndConnect(form)} disabled={isLoading} style={{ width: '100%', padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: 'var(--hive-blue)', color: '#fff', fontWeight: 'bold', cursor: 'pointer', marginTop: '20px', flexShrink: 0 }}>
-                {isLoading ? '설정 및 가동 중...' : '저장 및 가동'}
+                {isLoading ? '설정 및 가동 중...' : '설정 저장'}
               </button>
             </div>
           ) : isErrorNoteOpen ? (
