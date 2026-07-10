@@ -330,17 +330,24 @@ export default function App() {
     }
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => { 
-    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); handleSend(); } 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); handleSend(); }
   }
+
+  // 팝업 위치: 채팅창이 열려 있으면 채팅창 정중앙(드래그/최대화 반영), 닫혀 있으면 에이전트 위
+  const popupPosStyle: React.CSSProperties = isChatOpen
+    ? (isChatMaximized
+        ? { position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }
+        : { position: 'fixed', left: chatPosRef.current.left + CHAT_W / 2, top: chatPosRef.current.top + CHAT_H / 2, transform: 'translate(-50%, -50%)' })
+    : { position: 'fixed', bottom: '240px', left: '50%', transform: 'translateX(-50%)' }
 
   return (
     <div className="main-container" style={{ width: '100vw', height: '100vh', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', backgroundColor: 'transparent' }}>
       {alertModal && (
-        <AlertModal emoji={alertModal.emoji} message={alertModal.message} onClose={() => setAlertModal(null)} />
+        <AlertModal emoji={alertModal.emoji} message={alertModal.message} onClose={() => setAlertModal(null)} positionStyle={popupPosStyle} />
       )}
       {isNetworkLost && (
-        <div className="interactable" style={{ position: 'fixed', bottom: '240px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#1c1c1e', borderRadius: '16px', padding: '24px 28px', border: '1px solid rgba(255,80,80,0.3)', width: '320px', boxSizing: 'border-box', textAlign: 'center', zIndex: 9999, boxShadow: '0 8px 32px rgba(0,0,0,0.6)' }}>
+        <div className="interactable" style={{ ...popupPosStyle, backgroundColor: '#1c1c1e', borderRadius: '16px', padding: '24px 28px', border: '1px solid rgba(255,80,80,0.3)', width: '320px', boxSizing: 'border-box', textAlign: 'center', zIndex: 9999, boxShadow: '0 8px 32px rgba(0,0,0,0.6)' }}>
           <h3 style={{ color: '#fff', marginBottom: '6px', fontSize: '15px' }}>네트워크 연결 끊김</h3>
           <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '13px', marginBottom: '16px' }}>서버 유지에 10회 연속 실패했습니다.<br/>네트워크 상태를 확인해주세요.</p>
           <div style={{ display: 'flex', gap: '8px' }}>
@@ -360,7 +367,7 @@ export default function App() {
         </div>
       )}
       {isWarmupFailed && (
-        <div className="interactable" style={{ position: 'fixed', bottom: '240px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#1c1c1e', borderRadius: '16px', padding: '24px 28px', border: '1px solid rgba(255,80,80,0.3)', width: '320px', boxSizing: 'border-box', textAlign: 'center', zIndex: 9999, boxShadow: '0 8px 32px rgba(0,0,0,0.6)' }}>
+        <div className="interactable" style={{ ...popupPosStyle, backgroundColor: '#1c1c1e', borderRadius: '16px', padding: '24px 28px', border: '1px solid rgba(255,80,80,0.3)', width: '320px', boxSizing: 'border-box', textAlign: 'center', zIndex: 9999, boxShadow: '0 8px 32px rgba(0,0,0,0.6)' }}>
           <h3 style={{ color: '#fff', marginBottom: '6px', fontSize: '15px' }}>에이전트 활성화 실패</h3>
           <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '13px', marginBottom: '16px' }}>Vercel 서버가 응답하지 않습니다.<br/>재시도하면 연결될 수 있습니다.</p>
           <div style={{ display: 'flex', gap: '8px' }}>
@@ -380,7 +387,7 @@ export default function App() {
         </div>
       )}
       {connectionError && (
-        <div className="interactable" style={{ position: 'fixed', bottom: '240px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#1c1c1e', borderRadius: '16px', padding: '24px 28px', border: '1px solid rgba(255,80,80,0.3)', width: '320px', boxSizing: 'border-box', textAlign: 'center', zIndex: 9999, boxShadow: '0 8px 32px rgba(0,0,0,0.6)' }}>
+        <div className="interactable" style={{ ...popupPosStyle, backgroundColor: '#1c1c1e', borderRadius: '16px', padding: '24px 28px', border: '1px solid rgba(255,80,80,0.3)', width: '320px', boxSizing: 'border-box', textAlign: 'center', zIndex: 9999, boxShadow: '0 8px 32px rgba(0,0,0,0.6)' }}>
           <h3 style={{ color: '#fff', marginBottom: '6px', fontSize: '15px' }}>프록시 서버 연결 실패</h3>
           <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '13px', marginBottom: '12px' }}>네트워크를 확인하거나 잠시 후 다시 시도해주세요.</p>
           <div style={{ backgroundColor: 'rgba(255,59,48,0.12)', border: '1px solid rgba(255,59,48,0.3)', borderRadius: '8px', padding: '8px 12px', marginBottom: '16px' }}>

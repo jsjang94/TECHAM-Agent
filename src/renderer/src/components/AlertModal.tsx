@@ -4,14 +4,15 @@ interface AlertModalProps {
   emoji: string
   message: string
   onClose: () => void
+  positionStyle?: React.CSSProperties
 }
 
-export default function AlertModal({ emoji, message, onClose }: AlertModalProps) {
+export default function AlertModal({ emoji, message, onClose, positionStyle }: AlertModalProps) {
   return (
     <div
       className="interactable"
       style={{
-        position: 'fixed', bottom: '240px', left: '50%', transform: 'translateX(-50%)',
+        ...(positionStyle ?? { position: 'fixed', bottom: '240px', left: '50%', transform: 'translateX(-50%)' }),
         backgroundColor: '#1c1c1e', borderRadius: '16px', padding: '28px 28px 20px',
         border: '1px solid rgba(255,255,255,0.12)', width: '300px',
         boxSizing: 'border-box', textAlign: 'center', zIndex: 9999,
