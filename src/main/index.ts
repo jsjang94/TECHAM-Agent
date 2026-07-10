@@ -56,6 +56,17 @@ app.whenReady().then(() => {
     app.exit(0)
   })
 
+  // 최소화 버튼 → 앱 전체(에이전트 포함)를 mac Dock으로 최소화
+  ipcMain.on('minimize-app', (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.minimize()
+  })
+
+  // Dock 아이콘 클릭 시 최소화된 창 복원
+  app.on('activate', () => {
+    const win = BrowserWindow.getAllWindows()[0]
+    if (win?.isMinimized()) win.restore()
+  })
+
   // 마우스가 interactable 위: 클릭 캡처 / 투명 영역: 클릭 통과
   ipcMain.on('set-ignore-mouse', (event, ignore: boolean) => {
     const win = BrowserWindow.fromWebContents(event.sender)

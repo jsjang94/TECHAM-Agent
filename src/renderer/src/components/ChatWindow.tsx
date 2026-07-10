@@ -1,6 +1,6 @@
 // src/components/ChatWindow.tsx
 import React, { useState } from 'react'
-import { Settings, BookOpen, Send, Circle } from 'lucide-react'
+import { Settings, BookOpen, Send, Circle, X, Minus, Maximize2, Minimize2 } from 'lucide-react'
 import '../assets/ChatWindow.css'
 
 interface ChatWindowProps {
@@ -21,7 +21,6 @@ interface ChatWindowProps {
   setErrorNoteForm: (val: any) => void
   submitErrorNote: () => Promise<void>
   onTitlebarMouseDown: (e: React.MouseEvent) => void
-  isChatMinimized: boolean
   isChatMaximized: boolean
   onMinimize: () => void
   onMaximize: () => void
@@ -33,7 +32,7 @@ export default function ChatWindow({
   toggleChat, config, isConfiguring, setIsConfiguring, saveConfigAndConnect,
   messages, isLoading, inputText, setInputText, handleSend, handleKeyDown,
   isErrorNoteOpen, setIsErrorNoteOpen, errorNoteForm, setErrorNoteForm, submitErrorNote,
-  onTitlebarMouseDown, isChatMinimized, isChatMaximized, onMinimize, onMaximize,
+  onTitlebarMouseDown, isChatMaximized, onMinimize, onMaximize,
   isNetworkReconnecting = false, integrationsHealth
 }: ChatWindowProps) {
 
@@ -62,33 +61,22 @@ export default function ChatWindow({
   }
 
   return (
-    <div className="chat-container">
+    <div className="chat-container" style={{ borderRadius: isChatMaximized ? 0 : undefined, transition: 'border-radius 0.25s ease' }}>
       
       {/* 🌟 타이틀바 (절대 고정) */}
       <div className="mac-titlebar" onMouseDown={onTitlebarMouseDown}>
         <div className="mac-buttons">
           <div className="mac-btn mac-close" onClick={() => toggleChat(false)} title="닫기">
-            <svg className="mac-icon" width="6" height="6" viewBox="0 0 6 6">
-              <line x1="0.75" y1="0.75" x2="5.25" y2="5.25" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-              <line x1="5.25" y1="0.75" x2="0.75" y2="5.25" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-            </svg>
+            <X className="mac-icon" size={8} strokeWidth={1.5} absoluteStrokeWidth />
           </div>
-          <div className="mac-btn mac-min" onClick={onMinimize} title={isChatMinimized ? '복원' : '최소화'}>
-            <svg className="mac-icon" width="6" height="6" viewBox="0 0 6 6">
-              <line x1="0.75" y1="3" x2="5.25" y2="3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-            </svg>
+          <div className="mac-btn mac-min" onClick={onMinimize} title="최소화">
+            <Minus className="mac-icon" size={9} strokeWidth={1.5} absoluteStrokeWidth />
           </div>
           <div className="mac-btn mac-full" onClick={onMaximize} title={isChatMaximized ? '기본 크기로' : '확대'}>
             {isChatMaximized ? (
-              <svg className="mac-icon" width="6" height="6" viewBox="0 0 6 6">
-                <polyline points="0.75,2.5 0.75,0.75 2.5,0.75" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
-                <polyline points="5.25,3.5 5.25,5.25 3.5,5.25" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
-              </svg>
+              <Minimize2 className="mac-icon" size={7} strokeWidth={1.5} absoluteStrokeWidth />
             ) : (
-              <svg className="mac-icon" width="6" height="6" viewBox="0 0 6 6">
-                <polyline points="3.5,0.75 5.25,0.75 5.25,2.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
-                <polyline points="2.5,5.25 0.75,5.25 0.75,3.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
-              </svg>
+              <Maximize2 className="mac-icon" size={7} strokeWidth={1.5} absoluteStrokeWidth />
             )}
           </div>
         </div>

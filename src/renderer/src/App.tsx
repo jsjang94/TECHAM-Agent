@@ -7,6 +7,9 @@ import './assets/main.css'
 
 const WELCOME_MESSAGE = '모든 시스템과 정상적으로 연결되었습니다. 무엇을 검색할까요?'
 
+// 채팅창 최대화/복원 애니메이션 (드래그 중에는 잠시 꺼서 커서를 즉시 따라가게 함)
+const CHAT_TRANSITION = 'left 0.25s ease, top 0.25s ease, width 0.25s ease, height 0.25s ease, border-radius 0.25s ease'
+
 const safeParse = (key: string, defaultVal: string[]) => {
   try { return JSON.parse(localStorage.getItem(key) || 'null') || defaultVal; }
   catch { return defaultVal; }
@@ -41,7 +44,6 @@ export default function App() {
   const [isLoginSuccess, setIsLoginSuccess] = useState(false)
   const [loginDotIndex, setLoginDotIndex] = useState(0)
   const [reconnectDotIndex, setReconnectDotIndex] = useState(0)
-  const [isChatMinimized, setIsChatMinimized] = useState(false)
   const [isChatMaximized, setIsChatMaximized] = useState(false)
   const hasSessionRef = useRef(false)
   const [alertModal, setAlertModal] = useState<{ emoji: string; message: string } | null>(null)
@@ -54,8 +56,6 @@ export default function App() {
   const dragOffsetRef = useRef({ x: 0, y: 0 })
   const CHAT_W = Math.floor(window.screen.availWidth * 0.60)
   const CHAT_H = Math.floor(window.screen.availHeight * 0.70)
-  const CHAT_W_MAX = Math.floor(window.screen.availWidth * 0.85)
-  const CHAT_H_MAX = Math.floor(window.screen.availHeight * 0.88)
   const chatPosRef = useRef({
     left: Math.floor((window.screen.availWidth - CHAT_W) / 2),
     top: Math.floor(window.screen.availHeight - 170 - 70 - CHAT_H), // 에이전트(170px) 위 60px 여유
@@ -152,7 +152,10 @@ export default function App() {
         }
       }
     }
-    const onMouseUp = () => { isDraggingRef.current = false }
+    const onMouseUp = () => {
+      if (isDraggingRef.current && chatRef.current) chatRef.current.style.transition = CHAT_TRANSITION
+      isDraggingRef.current = false
+    }
     window.addEventListener('mousemove', onMouseMove)
     window.addEventListener('mouseup', onMouseUp)
     return () => {
@@ -162,9 +165,10 @@ export default function App() {
   }, [])
 
   const handleTitlebarMouseDown = (e: React.MouseEvent) => {
-    if (!chatRef.current) return
+    if (!chatRef.current || isChatMaximized) return // 최대화 상태에서는 드래그 불가 (mac 최대화 창과 동일)
     const rect = chatRef.current.getBoundingClientRect()
     isDraggingRef.current = true
+    chatRef.current.style.transition = 'none' // 드래그 중 transition 끔 → 커서 즉시 추적
     dragOffsetRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top }
   }
 
@@ -267,7 +271,6 @@ export default function App() {
     setIsTransitioning(true)
     setIsChatOpen(open)
     if (!open) {
-      setIsChatMinimized(false)
       setIsChatMaximized(false)
     }
     setTimeout(() => setIsTransitioning(false), 200)
@@ -409,14 +412,14 @@ export default function App() {
           className="interactable"
           style={{
             position: 'fixed',
-            left: chatPosRef.current.left,
-            top: chatPosRef.current.top,
-            width: isChatMaximized ? CHAT_W_MAX : CHAT_W,
-            height: isChatMinimized ? 35 : (isChatMaximized ? CHAT_H_MAX : CHAT_H),
+            left: isChatMaximized ? 0 : chatPosRef.current.left,
+            top: isChatMaximized ? 0 : chatPosRef.current.top,
+            width: isChatMaximized ? '100vw' : CHAT_W,
+            height: isChatMaximized ? '100vh' : CHAT_H,
             zIndex: 10,
             overflow: 'hidden',
-            borderRadius: '12px',
-            transition: 'width 0.2s ease, height 0.2s ease',
+            borderRadius: isChatMaximized ? 0 : '12px',
+            transition: CHAT_TRANSITION,
           }}
         >
           <ChatWindow
@@ -429,15 +432,19 @@ export default function App() {
             isErrorNoteOpen={isErrorNoteOpen} setIsErrorNoteOpen={setIsErrorNoteOpen}
             errorNoteForm={errorNoteForm} setErrorNoteForm={setErrorNoteForm} submitErrorNote={submitErrorNote}
             onTitlebarMouseDown={handleTitlebarMouseDown}
-            isChatMinimized={isChatMinimized}
             isChatMaximized={isChatMaximized}
-            onMinimize={() => setIsChatMinimized(v => !v)}
-            onMaximize={() => { setIsChatMaximized(v => !v); setIsChatMinimized(false); }}
+            onMinimize={() => {
+              const w = window as any
+              if (w.api?.minimizeApp) w.api.minimizeApp()
+              else w.electron?.ipcRenderer?.send('minimize-app')
+            }}
+            onMaximize={() => setIsChatMaximized(v => !v)}
           />
         </div>
       )}
       {/* position: fixed 로 flex 레이아웃에서 완전히 분리 → 윈도우 리사이즈 중 움직임 없음 */}
-      <div className="interactable" style={{ position: 'fixed', bottom: 0, left: 'calc(50% - 120px)', width: '240px', height: '222px', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', zIndex: 20 }}>
+      {/* 최대화 시 Dock으로 사라지듯 아래로 슬라이드, 복원 시 원위치 */}
+      <div className="interactable" style={{ position: 'fixed', bottom: 0, left: 'calc(50% - 120px)', width: '240px', height: '222px', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', zIndex: 20, transform: isChatMaximized ? 'translateY(260px) scale(0.85)' : 'translateY(0) scale(1)', opacity: isChatMaximized ? 0 : 1, pointerEvents: isChatMaximized ? 'none' : 'auto', transition: 'transform 0.35s ease-in-out, opacity 0.3s ease' }}>
         {/* 서버 상태 플로팅 바 */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px 14px', backgroundColor: 'rgba(100,100,100,0.60)', borderRadius: '8px', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.25)', boxShadow: '0 4px 20px rgba(0,0,0,0.25)', marginBottom: '16px', zIndex: 1 }}>
           {/* 프록시 연결 상태 점: 주황(워밍업 중) → 초록(준비됨) */}
