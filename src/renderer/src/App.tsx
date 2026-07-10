@@ -24,6 +24,10 @@ export default function App() {
   })
   
   const [isConfiguring, setIsConfiguring] = useState(!config.userEmail)
+  // 스페이스 설정을 저장한 적이 있는지 (저장 전에는 위키 화면 이동 차단 + 설정 화면 닫기 불가)
+  const [hasSavedSpaces, setHasSavedSpaces] = useState(
+    !!localStorage.getItem('hive_conf_spaces') && !!localStorage.getItem('hive_jira_spaces')
+  )
   const [isLoginOpen, setIsLoginOpen] = useState(false)
   const [inputText, setInputText] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -254,6 +258,7 @@ export default function App() {
     setConfig(prev => ({ ...prev, confSpaces, jiraSpaces }))
     localStorage.setItem('hive_conf_spaces', JSON.stringify(confSpaces))
     localStorage.setItem('hive_jira_spaces', JSON.stringify(jiraSpaces))
+    setHasSavedSpaces(true)
     setIsConfiguring(false)
     setIsErrorNoteOpen(false)
     showAlert('✅', '설정이 완료되었습니다.')
@@ -429,6 +434,7 @@ export default function App() {
             handleSend={handleSend} handleKeyDown={handleKeyDown}
             isNetworkReconnecting={isNetworkReconnecting}
             integrationsHealth={integrationsHealth}
+            hasSavedSpaces={hasSavedSpaces} showAlert={showAlert}
             isErrorNoteOpen={isErrorNoteOpen} setIsErrorNoteOpen={setIsErrorNoteOpen}
             errorNoteForm={errorNoteForm} setErrorNoteForm={setErrorNoteForm} submitErrorNote={submitErrorNote}
             onTitlebarMouseDown={handleTitlebarMouseDown}

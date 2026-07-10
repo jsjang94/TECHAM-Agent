@@ -20,6 +20,8 @@ interface ChatWindowProps {
   errorNoteForm: any
   setErrorNoteForm: (val: any) => void
   submitErrorNote: () => Promise<void>
+  hasSavedSpaces: boolean
+  showAlert: (emoji: string, message: string) => void
   onTitlebarMouseDown: (e: React.MouseEvent) => void
   isChatMaximized: boolean
   onMinimize: () => void
@@ -32,6 +34,7 @@ export default function ChatWindow({
   toggleChat, config, isConfiguring, setIsConfiguring, saveConfigAndConnect,
   messages, isLoading, inputText, setInputText, handleSend, handleKeyDown,
   isErrorNoteOpen, setIsErrorNoteOpen, errorNoteForm, setErrorNoteForm, submitErrorNote,
+  hasSavedSpaces, showAlert,
   onTitlebarMouseDown, isChatMaximized, onMinimize, onMaximize,
   isNetworkReconnecting = false, integrationsHealth
 }: ChatWindowProps) {
@@ -51,6 +54,19 @@ export default function ChatWindow({
   )
 
   const inputStyle = { width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.2)', backgroundColor: 'rgba(0,0,0,0.2)', color: '#fff', marginBottom: '10px', outline: 'none' }
+
+  // 설정/위키 화면 하단 버튼 (닫기: 밝은 회색 / 저장·등록: 하이브 블루)
+  const footerBtnBase: React.CSSProperties = { width: '20%', padding: '12px', borderRadius: '8px', border: 'none', fontWeight: 'bold', cursor: 'pointer' }
+  const footerCloseBtnStyle: React.CSSProperties = { ...footerBtnBase, backgroundColor: '#d1d1d6', color: '#1c1c1e' }
+  const footerSubmitBtnStyle: React.CSSProperties = { ...footerBtnBase, backgroundColor: 'var(--hive-blue)', color: '#fff' }
+
+  // 스페이스 설정 저장 전에는 위키 화면 이동 차단
+  const openWiki = () => {
+    if (!config.userEmail) return
+    if (!hasSavedSpaces) { showAlert('⚙️', '스페이스 설정 후 이용 가능합니다.'); return }
+    setIsErrorNoteOpen(true)
+    setIsConfiguring(false)
+  }
 
   const handleArrayChange = (type: 'confSpaces' | 'jiraSpaces', idx: number, val: string) => {
     const newArr = [...form[type]]; newArr[idx] = val; setForm({ ...form, [type]: newArr });
@@ -104,7 +120,7 @@ export default function ChatWindow({
         <div className="app-header-actions">
           <button
             className="app-header-icon-btn"
-            onClick={() => { if (!config.userEmail) return; setIsErrorNoteOpen(!isErrorNoteOpen); setIsConfiguring(false); }}
+            onClick={openWiki}
             title="팀 위키"
           ><BookOpen size={16} /></button>
           <button
@@ -145,9 +161,15 @@ export default function ChatWindow({
                 <button onClick={() => addArrayItem('confSpaces')} style={{ background:'none', border:'none', color:'var(--hive-blue)', cursor:'pointer', fontSize: '12px' }}>+ 추가</button>
               </div>
               
-              <button onClick={() => saveConfigAndConnect(form)} disabled={isLoading} style={{ width: '20%', alignSelf: 'center', padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: 'var(--hive-blue)', color: '#fff', fontWeight: 'bold', cursor: 'pointer', marginTop: '20px', flexShrink: 0 }}>
-                {isLoading ? '설정 및 가동 중...' : '설정 저장'}
-              </button>
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginTop: '20px', flexShrink: 0 }}>
+                {/* 첫 설정(저장 이력 없음) 시에는 닫기 없이 저장을 완료해야 함 */}
+                {hasSavedSpaces && (
+                  <button onClick={() => setIsConfiguring(false)} style={footerCloseBtnStyle}>닫기</button>
+                )}
+                <button onClick={() => saveConfigAndConnect(form)} disabled={isLoading} style={footerSubmitBtnStyle}>
+                  {isLoading ? '설정 및 가동 중...' : '설정 저장'}
+                </button>
+              </div>
             </div>
           ) : isErrorNoteOpen ? (
             /* 💡 오답노트 화면 (안쪽 옵션들만 스크롤) */
@@ -177,9 +199,12 @@ export default function ChatWindow({
                 </div>
               </div>
               
-              <button onClick={submitErrorNote} disabled={isLoading} style={{ width: '20%', alignSelf: 'center', padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: 'var(--hive-blue)', color: '#fff', fontWeight: 'bold', cursor: 'pointer', marginTop: '20px', flexShrink: 0 }}>
-                {isLoading ? '위키에 등록 중...' : '등록하기'}
-              </button>
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginTop: '20px', flexShrink: 0 }}>
+                <button onClick={() => setIsErrorNoteOpen(false)} style={footerCloseBtnStyle}>닫기</button>
+                <button onClick={submitErrorNote} disabled={isLoading} style={footerSubmitBtnStyle}>
+                  {isLoading ? '위키에 등록 중...' : '등록하기'}
+                </button>
+              </div>
             </div>
 
           ) : (
@@ -200,8 +225,9 @@ export default function ChatWindow({
                       {msg.text}
                     </div>
                     {msg.isBot && !msg.isSystem && (
-                      <button 
+                      <button
                         onClick={() => {
+                          if (!hasSavedSpaces) { showAlert('⚙️', '스페이스 설정 후 이용 가능합니다.'); return }
                           const lastUserMsg = messages.slice(0, idx).reverse().find(m => !m.isBot)?.text || '';
                           setErrorNoteForm({ ...errorNoteForm, question: lastUserMsg });
                           setIsErrorNoteOpen(true);
