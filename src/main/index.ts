@@ -357,16 +357,7 @@ app.whenReady().then(() => {
       const { authHeader, baseUrl } = await getAtlassianAuth(config.userEmail);
       const confluenceHeaders = { 'Authorization': authHeader, 'Content-Type': 'application/json', 'Accept': 'application/json' };
 
-      // 1. GET
-      const getRes = await net.fetch(`${baseUrl}/wiki/rest/api/content/${pageId}?expand=body.storage,version,space`, {
-        method: 'GET', headers: confluenceHeaders
-      });
-      if (!getRes.ok) throw new Error('페이지를 읽어오지 못했습니다.');
-      const pageData = await getRes.json();
-
-      let storageHtml = pageData.body.storage.value;
-      const currentVersion = pageData.version.number;
-
+      // 추가할 행은 노트 내용에만 의존하므로 재시도해도 동일하다 → 루프 밖에서 한 번만 만든다.
       // 모든 사용자 입력을 이스케이프한 뒤에 개행을 <br/>로 바꾼다 (br 태그가 이스케이프되지 않도록 순서 유지).
       const safeLink = String(noteData.link || '').trim();
       const isHttpLink = /^https?:\/\//i.test(safeLink);
@@ -377,29 +368,56 @@ app.whenReady().then(() => {
       const formattedA = escapeHtml(noteData.answer).replace(/\n/g, '<br/>');
       const newRow = `<tr><td>${escapeHtml(noteData.author)}</td><td>${formattedQ}</td><td>${formattedA}</td><td>${linkHtml}</td></tr>`;
 
-      if (storageHtml.includes('</tbody>')) {
-        storageHtml = storageHtml.replace('</tbody>', `${newRow}</tbody>`);
-      } else if (storageHtml.includes('</table>')) {
-        storageHtml = storageHtml.replace('</table>', `${newRow}</table>`);
-      } else {
-        storageHtml += `<table><tbody><tr><th>등록자</th><th>질문</th><th>올바른 답변</th><th>참고 링크</th></tr>${newRow}</tbody></table>`;
-      }
+      // 409(동시 편집 충돌) 시 최신 버전을 다시 GET → 행 이어붙여 → PUT 을 최대 3회 재시도한다.
+      // 409는 내 변경이 아직 반영되지 않았다는 뜻이라, 재-GET한 최신 본문(타인이 추가한 행 포함)에
+      // 내 행을 덧붙이면 데이터 유실·중복 없이 안전하게 병합된다.
+      const MAX_ATTEMPTS = 3;
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        // 1. 최신 본문 + 버전 GET
+        const getRes = await net.fetch(`${baseUrl}/wiki/rest/api/content/${pageId}?expand=body.storage,version,space`, {
+          method: 'GET', headers: confluenceHeaders
+        });
+        if (!getRes.ok) throw new Error('페이지를 읽어오지 못했습니다.');
+        const pageData = await getRes.json();
 
-      const updateRes = await net.fetch(`${baseUrl}/wiki/rest/api/content/${pageId}`, {
-        method: 'PUT', headers: confluenceHeaders,
-        body: JSON.stringify({
-          id: pageId, type: 'page', title: pageData.title,
-          space: { key: pageData.space?.key || '~jsjang' },
-          body: { storage: { value: storageHtml, representation: 'storage' } },
-          version: { number: currentVersion + 1 }
-        })
-      });
+        let storageHtml = pageData.body.storage.value;
+        const currentVersion = pageData.version.number;
 
-      if (!updateRes.ok) {
-        if (updateRes.status === 409) return { success: false, isConflict: true };
+        // 2. 표에 새 행 이어붙이기
+        if (storageHtml.includes('</tbody>')) {
+          storageHtml = storageHtml.replace('</tbody>', `${newRow}</tbody>`);
+        } else if (storageHtml.includes('</table>')) {
+          storageHtml = storageHtml.replace('</table>', `${newRow}</table>`);
+        } else {
+          storageHtml += `<table><tbody><tr><th>등록자</th><th>질문</th><th>올바른 답변</th><th>참고 링크</th></tr>${newRow}</tbody></table>`;
+        }
+
+        // 3. PUT (최신 버전 + 1)
+        const updateRes = await net.fetch(`${baseUrl}/wiki/rest/api/content/${pageId}`, {
+          method: 'PUT', headers: confluenceHeaders,
+          body: JSON.stringify({
+            id: pageId, type: 'page', title: pageData.title,
+            space: { key: pageData.space?.key || '~jsjang' },
+            body: { storage: { value: storageHtml, representation: 'storage' } },
+            version: { number: currentVersion + 1 }
+          })
+        });
+
+        if (updateRes.ok) return { success: true };
+
+        // 409 → 다른 사람이 먼저 수정함. 최신 버전으로 재시도.
+        if (updateRes.status === 409) {
+          console.warn(`[WriteErrorNote] 409 충돌 - 최신 버전으로 재시도 (${attempt}/${MAX_ATTEMPTS})`);
+          if (attempt < MAX_ATTEMPTS) await new Promise(r => setTimeout(r, 300));
+          continue;
+        }
+        // 그 외 에러는 재시도해도 소용없음 → 즉시 실패.
         throw new Error(await updateRes.text());
       }
-      return { success: true };
+
+      // 재시도를 모두 소진했는데도 계속 충돌 → 마지막 수단으로 사용자에게 충돌 안내.
+      console.error('[WriteErrorNote] 재시도 모두 409 충돌로 실패');
+      return { success: false, isConflict: true };
     } catch (e: any) { return { success: false, error: e.message }; }
   });
 })
