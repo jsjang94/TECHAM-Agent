@@ -4,7 +4,8 @@ import { electronAPI } from '@electron-toolkit/preload'
 // Custom APIs for renderer
 const api = {
   quitApp: () => ipcRenderer.send('quit-app'),
-  minimizeApp: () => ipcRenderer.send('minimize-app')
+  minimizeApp: () => ipcRenderer.send('minimize-app'),
+  openExternal: (url: string) => ipcRenderer.send('open-external', url)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

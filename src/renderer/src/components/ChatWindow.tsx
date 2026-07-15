@@ -1,7 +1,46 @@
 // src/components/ChatWindow.tsx
 import React, { useState } from 'react'
 import { Settings, BookOpen, Send, Circle, X, Minus, Maximize2, Minimize2 } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import remarkBreaks from 'remark-breaks'
 import '../assets/ChatWindow.css'
+
+// 마크다운 링크는 앱 창을 이동시키지 않고 기본 브라우저로 열기
+const openExternalLink = (href?: string) => {
+  if (!href) return
+  const w = window as any
+  if (w.api?.openExternal) w.api.openExternal(href)
+  else w.electron?.ipcRenderer?.send('open-external', href)
+}
+
+// AI가 툴 결과 포맷(`[일감]:`, `[링크]: url`)을 그대로 흘리면 마크다운이 이를
+// 링크 참조 정의로 오인해 해당 줄을 통째로 삭제한다. 라벨 대괄호를 escape 해서
+// 링크·본문이 소리 없이 사라지지 않도록 방어한다. (인라인 링크 `[텍스트](url)`는 `]:`가
+// 아니라 `](` 이므로 영향 없음)
+const normalizeBotMarkdown = (text: string): string =>
+  text.replace(/^( {0,3})\[([^\]\n]+)\]:/gm, '$1\\[$2\\]:')
+
+// 봇 답변 전용 마크다운 렌더러 (링크·목록·표·코드블록 등 지원)
+const MarkdownMessage = ({ text }: { text: string }) => (
+  <div className="md-content">
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm, remarkBreaks]}
+      components={{
+        a: ({ href, children }) => (
+          <a
+            href={href}
+            onClick={(e) => { e.preventDefault(); openExternalLink(href) }}
+          >
+            {children}
+          </a>
+        )
+      }}
+    >
+      {normalizeBotMarkdown(text)}
+    </ReactMarkdown>
+  </div>
+)
 
 interface ChatWindowProps {
   toggleChat: (open: boolean) => void
@@ -221,8 +260,8 @@ export default function ChatWindow({
               <div id="chat-scroll-area" style={{ flex: 1, padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 {messages.map((msg, idx) => (
                   <div key={idx} style={{ display: 'flex', flexDirection: 'column', alignItems: msg.isBot ? 'flex-start' : 'flex-end' }}>
-                    <div style={{ maxWidth: '80%', padding: '12px 16px', borderRadius: '12px', fontSize: '14px', lineHeight: '1.5', backgroundColor: msg.isSystem ? 'transparent' : (msg.isBot ? 'rgba(255,255,255,0.1)' : 'var(--hive-blue)'), color: msg.isSystem ? 'rgba(var(--hive-blue-rgb), 0.85)' : '#fff', border: msg.isSystem ? '1px dashed rgba(var(--hive-blue-rgb), 0.4)' : 'none', borderBottomLeftRadius: msg.isBot ? '4px' : '12px', borderBottomRightRadius: msg.isBot ? '12px' : '4px', whiteSpace: 'pre-wrap' }}>
-                      {msg.text}
+                    <div style={{ maxWidth: '80%', padding: '12px 16px', borderRadius: '12px', fontSize: '14px', lineHeight: '1.5', backgroundColor: msg.isSystem ? 'transparent' : (msg.isBot ? 'rgba(255,255,255,0.1)' : 'var(--hive-blue)'), color: msg.isSystem ? 'rgba(var(--hive-blue-rgb), 0.85)' : '#fff', border: msg.isSystem ? '1px dashed rgba(var(--hive-blue-rgb), 0.4)' : 'none', borderBottomLeftRadius: msg.isBot ? '4px' : '12px', borderBottomRightRadius: msg.isBot ? '12px' : '4px', whiteSpace: (msg.isBot && !msg.isSystem) ? 'normal' : 'pre-wrap' }}>
+                      {(msg.isBot && !msg.isSystem) ? <MarkdownMessage text={msg.text} /> : msg.text}
                     </div>
                     {msg.isBot && !msg.isSystem && (
                       <button

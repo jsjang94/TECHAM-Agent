@@ -1,5 +1,5 @@
 // src/main/index.ts
-import { app, BrowserWindow, screen, ipcMain, net } from 'electron'
+import { app, BrowserWindow, screen, ipcMain, net, shell } from 'electron'
 import { join } from 'path'
 import { optimizer, is } from '@electron-toolkit/utils'
 import { processUserMessage } from './agents/managerAgent'
@@ -71,6 +71,16 @@ app.whenReady().then(() => {
   ipcMain.on('set-ignore-mouse', (event, ignore: boolean) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (win) win.setIgnoreMouseEvents(ignore, { forward: true })
+  })
+
+  // 채팅 답변의 마크다운 링크 클릭 → 앱 창 대신 기본 브라우저로 열기 (http/https만 허용)
+  ipcMain.on('open-external', (_, url: string) => {
+    try {
+      const { protocol } = new URL(url)
+      if (protocol === 'http:' || protocol === 'https:') shell.openExternal(url)
+    } catch {
+      /* 잘못된 URL은 무시 */
+    }
   })
 
   // 이메일+비밀번호 로그인 검증
