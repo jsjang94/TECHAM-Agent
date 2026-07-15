@@ -13,6 +13,17 @@ let keepAliveInterval: ReturnType<typeof setInterval> | null = null;
 let keepAliveRetries = 0;
 let keepAlivePingFn: (() => void) | null = null;
 
+// Confluence storage 포맷은 XHTML이라 사용자 입력을 그대로 넣으면 <, &, " 등이
+// 페이지 구조를 깨거나 의도치 않은 마크업으로 주입된다. HTML 엔티티로 이스케이프한다.
+// (&를 가장 먼저 치환해야 뒤에 생기는 &lt; 등이 이중 이스케이프되지 않는다.)
+const escapeHtml = (s: string): string =>
+  String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
 function createWindow(): void {
   const primaryDisplay = screen.getPrimaryDisplay()
   const { width, height } = primaryDisplay.workAreaSize
@@ -356,10 +367,15 @@ app.whenReady().then(() => {
       let storageHtml = pageData.body.storage.value;
       const currentVersion = pageData.version.number;
 
-      const linkHtml = noteData.link ? `<a href="${noteData.link}">${noteData.link}</a>` : '';
-      const formattedQ = noteData.question.replace(/\n/g, '<br/>');
-      const formattedA = noteData.answer.replace(/\n/g, '<br/>');
-      const newRow = `<tr><td>${noteData.author}</td><td>${formattedQ}</td><td>${formattedA}</td><td>${linkHtml}</td></tr>`;
+      // 모든 사용자 입력을 이스케이프한 뒤에 개행을 <br/>로 바꾼다 (br 태그가 이스케이프되지 않도록 순서 유지).
+      const safeLink = String(noteData.link || '').trim();
+      const isHttpLink = /^https?:\/\//i.test(safeLink);
+      const linkHtml = safeLink
+        ? (isHttpLink ? `<a href="${escapeHtml(safeLink)}">${escapeHtml(safeLink)}</a>` : escapeHtml(safeLink))
+        : '';
+      const formattedQ = escapeHtml(noteData.question).replace(/\n/g, '<br/>');
+      const formattedA = escapeHtml(noteData.answer).replace(/\n/g, '<br/>');
+      const newRow = `<tr><td>${escapeHtml(noteData.author)}</td><td>${formattedQ}</td><td>${formattedA}</td><td>${linkHtml}</td></tr>`;
 
       if (storageHtml.includes('</tbody>')) {
         storageHtml = storageHtml.replace('</tbody>', `${newRow}</tbody>`);
