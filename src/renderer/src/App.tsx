@@ -30,7 +30,8 @@ export default function App() {
   )
   const [isLoginOpen, setIsLoginOpen] = useState(false)
   const [inputText, setInputText] = useState('')
-  const [isLoading, setIsLoading] = useState(false)
+  const [isChatLoading, setIsChatLoading] = useState(false)
+  const [isSubmittingNote, setIsSubmittingNote] = useState(false)
   const [messages, setMessages] = useState<{ text: string; isBot: boolean; isSystem: boolean }[]>([])
   const [isErrorNoteOpen, setIsErrorNoteOpen] = useState(false)
   const [errorNoteForm, setErrorNoteForm] = useState({ author: '', question: '', answer: '', link: '' })
@@ -287,7 +288,7 @@ export default function App() {
     const userMsg = inputText
     setInputText('')
     setMessages(prev => [...prev, { text: userMsg, isBot: false, isSystem: false }])
-    setIsLoading(true)
+    setIsChatLoading(true)
 
     try {
       const electron = (window as any).electron;
@@ -310,23 +311,27 @@ export default function App() {
         if (response.success) setMessages(prev => [...prev, { text: response.text, isBot: true, isSystem: false }]);
         else setMessages(prev => [...prev, { text: `❌ 시스템 에러: ${response.error}`, isBot: true, isSystem: true }]);
       }
-    } catch (error: any) { setMessages(prev => [...prev, { text: `[통신 오류] ${error.message}`, isBot: true, isSystem: true }]) } 
-    finally { setIsLoading(false) }
+    } catch (error: any) { setMessages(prev => [...prev, { text: `[통신 오류] ${error.message}`, isBot: true, isSystem: true }]) }
+    finally { setIsChatLoading(false) }
   }
 
   const submitErrorNote = async () => {
     if (!errorNoteForm.question || !errorNoteForm.answer) return showAlert('✏️', '질문과 답변은 필수입니다!');
-    setIsLoading(true);
-    const electron = (window as any).electron;
-    if (electron?.ipcRenderer) {
+    setIsSubmittingNote(true);
+    try {
+      const electron = (window as any).electron;
+      if (!electron?.ipcRenderer) { showAlert('❌', '시스템 오류가 발생했습니다.'); return; }
       const res = await electron.ipcRenderer.invoke('write-error-note', config, errorNoteForm);
-      setIsLoading(false);
       if (res.success) {
         showAlert('📝', '팀 위키 문서에 성공적으로 추가되었습니다!');
         setIsErrorNoteOpen(false);
         setErrorNoteForm({ author: '', question: '', answer: '', link: '' });
       } else if (res.isConflict) showAlert('⚡', '충돌이 발생했습니다.\n다시 시도해주세요.');
       else showAlert('❌', `등록 실패: ${res.error}`);
+    } catch (error: any) {
+      showAlert('❌', `등록 중 오류가 발생했습니다: ${error.message}`);
+    } finally {
+      setIsSubmittingNote(false);
     }
   }
 
@@ -437,7 +442,7 @@ export default function App() {
           <ChatWindow
             toggleChat={toggleChat} config={config}
             isConfiguring={isConfiguring} setIsConfiguring={setIsConfiguring} saveConfigAndConnect={saveConfigAndConnect}
-            messages={messages as any} isLoading={isLoading} inputText={inputText} setInputText={setInputText}
+            messages={messages as any} isChatLoading={isChatLoading} isSubmittingNote={isSubmittingNote} inputText={inputText} setInputText={setInputText}
             handleSend={handleSend} handleKeyDown={handleKeyDown}
             isNetworkReconnecting={isNetworkReconnecting}
             integrationsHealth={integrationsHealth}

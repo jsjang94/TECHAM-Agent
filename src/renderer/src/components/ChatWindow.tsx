@@ -49,7 +49,8 @@ interface ChatWindowProps {
   setIsConfiguring: (val: boolean) => void
   saveConfigAndConnect: (config: any) => Promise<void>
   messages: { text: string; isBot: boolean; isSystem?: boolean }[]
-  isLoading: boolean
+  isChatLoading: boolean
+  isSubmittingNote: boolean
   inputText: string
   setInputText: (val: string) => void
   handleSend: () => Promise<void>
@@ -71,7 +72,7 @@ interface ChatWindowProps {
 
 export default function ChatWindow({
   toggleChat, config, isConfiguring, setIsConfiguring, saveConfigAndConnect,
-  messages, isLoading, inputText, setInputText, handleSend, handleKeyDown,
+  messages, isChatLoading, isSubmittingNote, inputText, setInputText, handleSend, handleKeyDown,
   isErrorNoteOpen, setIsErrorNoteOpen, errorNoteForm, setErrorNoteForm, submitErrorNote,
   hasSavedSpaces, showAlert,
   onTitlebarMouseDown, isChatMaximized, onMinimize, onMaximize,
@@ -205,8 +206,8 @@ export default function ChatWindow({
                 {hasSavedSpaces && (
                   <button onClick={() => setIsConfiguring(false)} style={footerCloseBtnStyle}>닫기</button>
                 )}
-                <button onClick={() => saveConfigAndConnect(form)} disabled={isLoading} style={footerSubmitBtnStyle}>
-                  {isLoading ? '설정 및 가동 중...' : '설정 저장'}
+                <button onClick={() => saveConfigAndConnect(form)} style={footerSubmitBtnStyle}>
+                  설정 저장
                 </button>
               </div>
             </div>
@@ -240,8 +241,8 @@ export default function ChatWindow({
               
               <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginTop: '20px', flexShrink: 0 }}>
                 <button onClick={() => setIsErrorNoteOpen(false)} style={footerCloseBtnStyle}>닫기</button>
-                <button onClick={submitErrorNote} disabled={isLoading} style={footerSubmitBtnStyle}>
-                  {isLoading ? '위키에 등록 중...' : '등록하기'}
+                <button onClick={submitErrorNote} disabled={isSubmittingNote} style={footerSubmitBtnStyle}>
+                  {isSubmittingNote ? '위키에 등록 중...' : '등록하기'}
                 </button>
               </div>
             </div>
@@ -289,12 +290,12 @@ export default function ChatWindow({
                     value={inputText} 
                     onChange={(e) => setInputText(e.target.value)} 
                     onKeyDown={handleKeyDown} 
-                    disabled={isLoading || isNetworkReconnecting}
+                    disabled={isChatLoading || isNetworkReconnecting}
                     style={{ flex: 1, background: 'transparent', border: 'none', color: '#fff', fontSize: '14px', outline: 'none', height: '36px' }}
                   />
                   <button
                     onClick={handleSend}
-                    disabled={isLoading || isNetworkReconnecting || !inputText.trim()}
+                    disabled={isChatLoading || isNetworkReconnecting || !inputText.trim()}
                     style={{ width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: inputText.trim() ? 'var(--hive-blue)' : 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '8px', color: '#fff', cursor: inputText.trim() ? 'pointer' : 'default', marginLeft: '8px' }}>
                     <Send size={16} />
                   </button>
