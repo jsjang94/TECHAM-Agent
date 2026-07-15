@@ -81,6 +81,14 @@ export default function ChatWindow({
 
   const [form, setForm] = useState(config)
 
+  // 설정 화면이 "열리는 순간"마다 현재 config를 form에 다시 로드한다 (렌더 단계에서 이전 값과 비교).
+  // → 저장하지 않고 닫았던 편집 잔재를 버리고(허점1), 저장 시 정리된(trim·빈행 제거) 값을 반영(허점2).
+  const [wasConfiguring, setWasConfiguring] = useState(isConfiguring)
+  if (isConfiguring !== wasConfiguring) {
+    setWasConfiguring(isConfiguring)
+    if (isConfiguring) setForm(config)
+  }
+
   const statusColor = (status: boolean | null | 'warn') =>
     status === 'warn' ? '#ff9f0a' : status === null ? 'rgba(255,255,255,0.3)' : status ? '#34c759' : '#ff3b30'
 
