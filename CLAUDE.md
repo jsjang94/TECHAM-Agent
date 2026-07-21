@@ -1,63 +1,22 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-## What this is
-
-TECHAM Agent — an Electron desktop app that acts as a floating AI assistant. A single Gemini agent answers sabin (in-house) questions by searching Jira, Confluence, Zendesk, and the Hive developer docs, then synthesizes a cited answer. UI is Korean.
+TECHAM Agent — Electron 플로팅 AI 어시스턴트. 단일 Gemini 에이전트가 Jira/Confluence/Zendesk/Hive 문서를 검색해 출처 인용된 답변을 생성. UI는 한국어.
 
 ## Commands
+- `npm run dev` / `npm run build`(typecheck+build, 변경 검증용) / `npm run typecheck[:node|:web]` / `npm run lint` / `npm run format` / `npm run build:mac`
+- 테스트 없음(`npm test`는 의도적 에러). `npm run build` + 수동 실행으로 검증, 순수 로직은 임시 node 스크립트로.
+- lint에 기존 위반 ~800건 있음 — 내 변경으로 생긴 경고만 신경 쓸 것.
 
-```bash
-npm run dev          # run app in dev (electron-vite, hot reload)
-npm run build        # typecheck (node + web) THEN electron-vite build — use this to verify changes
-npm run typecheck    # tsc for both node (main/preload) and web (renderer) projects
-npm run typecheck:node   # main + preload only
-npm run typecheck:web    # renderer only
-npm run lint         # eslint (see caveat below)
-npm run format       # prettier --write .
-npm run build:mac    # package a macOS build
-```
+## Architecture
+- 3 프로세스: `main/`(에이전트·모든 IPC·API 키 소유), `preload/`(작은 `window.api` 브릿지, 나머지는 `ipcRenderer`), `renderer/src/`(React 19, `App.tsx`가 상태 보유, `ChatWindow.tsx`가 UI).
+- **자격증명은 완전 로컬, 서버 없음**: `main/credentials.ts`가 7개 시크릿(Gemini+Atlassian+Zendesk) 소유. base64 설정 코드로 1회 주입, `safeStorage`로 암호화. 렌더러는 키를 절대 다시 못 읽음. 코드 생성: `node scripts/make-setup-code.mjs <keys.json>`.
+- 창은 기본적으로 풀스크린/투명/클릭통과. `App.tsx`가 `elementFromPoint`로 히트테스트해 `set-ignore-mouse` 토글. **클릭 가능한 UI는 반드시 `className="interactable"` 필요** — 없으면 클릭이 데스크톱으로 통과.
+- 에이전트 루프: `chat-with-agent` IPC → `managerAgent.ts::processUserMessage`, `gemini-2.5-flash` 함수콜링 툴(`mcp/tools.ts`) 루프. 툴은 Jira/Confluence/Zendesk를 `nodeHttpsFetch`(raw Node https, `net.fetch` 아님)로 직접 호출 — Jira XSRF(Chromium 쿠키) 회피 목적.
+- 검색은 AND 우선, 0건이면 OR 폴백 + `[안내:...]` 표기. 동작 대부분은 `SYSTEM_INSTRUCTION`에 있음 — 동작 변경은 코드보다 여기서.
+- 모델에 보내는 히스토리는 의도적으로 잘림(최근 6개, 봇 메시지 600자 제한) — 전체 히스토리로 되돌리지 말 것.
+- 위키 에러노트 작성(`write-error-note`)은 낙관적 락: GET→append→PUT version+1, Confluence 페이지 `285802836`, 409 시 3회 재시도.
 
-- **There is no test suite** (`npm test` intentionally errors). Verify changes with `npm run build` (typecheck) plus manually running the app, or by extracting pure logic into a throwaway node script and running it. Renderer-only React logic can't be observed headlessly here.
-- **Lint is noisy**: the repo has ~800 pre-existing prettier/`explicit-function-return-type`/`no-explicit-any` violations. When you touch a file, only care about warnings your change introduced (especially `react-hooks/*`), not the pre-existing flood.
-
-## Architecture — the parts that span files
-
-### Three processes; credentials are fully local (no server)
-- `src/main/` — Node side. Runs the agent, executes all tool searches, owns every IPC handler, manages the window, **and is the sole owner of API keys**.
-- `src/preload/` — context-bridge. Exposes a tiny typed `window.api` (`quitApp`, `minimizeApp`, `openExternal`); everything else goes through `window.electron.ipcRenderer`.
-- `src/renderer/src/` — React 19 UI. `App.tsx` holds essentially all state; `ChatWindow.tsx` is the chat/settings/wiki panel.
-- **`src/main/credentials.ts` is the single owner of all 7 secrets** (Gemini key + Atlassian base URL/email/token + Zendesk subdomain/email/token). They're provisioned once via a base64 "setup code" pasted on the setup screen (`LoginPopup.tsx`), encrypted with Electron `safeStorage`, and cached at `userData/credentials.enc`. **The renderer never reads keys back** — it only calls `save-credentials` (send setup code) and `has-credentials` (boolean gate). All three services are called **directly** (Gemini→Google, Atlassian/Zendesk→their APIs); there is no proxy server. `credentials.ts` builds the Atlassian/Zendesk `Basic` auth headers locally, matching the exact format the old proxy used.
-- Generate a setup code with `node scripts/make-setup-code.mjs <keys.json | .env path>`. (History: this app used to route everything through a Vercel proxy `techam-proxy` to hide keys; that was removed to eliminate cold-start warmup — keys are now local. `~/techam-proxy` may still exist as a dormant repo.)
-
-### The transparent click-through overlay (non-obvious)
-The window is fullscreen, frameless, transparent, always-on-top (`main/index.ts` `createWindow`). By default mouse events pass through to the desktop (`setIgnoreMouseEvents(true, {forward:true})`). `App.tsx` hit-tests `document.elementFromPoint` on every mousemove and toggles ignore on/off via the `set-ignore-mouse` IPC depending on whether the cursor is over an element with class `.interactable`. **Any clickable UI must carry `className="interactable"` or clicks fall through to the desktop.** The chat window is not an OS window — it's a `position:fixed` div dragged via CSS (`chatPosRef`, `handleTitlebarMouseDown`).
-
-### Agentic RAG flow (single agent, multi-tool)
-`renderer handleSend` → IPC `chat-with-agent` → `main/agents/managerAgent.ts::processUserMessage`. That runs ONE Gemini `gemini-2.5-flash` model (`new GoogleGenerativeAI(getGeminiApiKey())`, direct to Google) with function-calling tools declared in `main/mcp/tools.ts`. The tool-call loop (`while functionCalls`) executes tools with `Promise.all` (so multiple sources run in parallel) and feeds results back until the model produces final text. The whole agent loop runs locally in main. Tools (`search_jira`, `search_confluence`, `search_zendesk`, `search_hive_docs`, `scrape_hive_docs`) hit Jira/Confluence/Zendesk **directly** from main using auth from `credentials.ts` (`getAtlassianAuth()` / `getZendeskAuth()`, no args) — via `nodeHttpsFetch` (raw Node `https`), NOT `net.fetch`, specifically to avoid Chromium attaching session cookies/Origin that trigger Jira XSRF.
-
-### Search retrieval design (in `tools.ts`)
-Each Atlassian/Zendesk search does **AND first, then OR fallback** when AND returns zero, and prepends a `[안내: ...]` note so the model knows results are loosely-matched. Jira sorts by `updated DESC`; Confluence omits `order by` to use relevance ranking. Zendesk has no OR operator, so its fallback re-searches with just the first (most important) keyword — hence tool schemas instruct the model to list keywords most-important-first.
-
-### System prompt is the product logic
-`managerAgent.ts::SYSTEM_INSTRUCTION` encodes most behavior: per-source formatting, multi-source cross-referencing, mandatory clickable markdown source links, a **re-grounding rule** (never reuse URLs/facts from prior turns without re-searching), and the answer structure (conclusion → per-source evidence → links). Behavior changes usually belong here, not in code.
-
-### Conversation history is deliberately trimmed
-`App.tsx` sends the last `HISTORY_LIMIT` (6) messages, truncating bot messages to `HISTORY_BOT_MAX_CHARS` (600) with an explicit "…생략" marker. This is intentional: replaying full past answers (with scraped URLs/code) caused the model to skip re-searching and hallucinate. Don't "simplify" this back to raw full history.
-
-### Answer rendering
-Bot (non-system) messages render through `react-markdown` + `remark-gfm` + `remark-breaks` in `ChatWindow.tsx`. Links are intercepted and opened in the external browser via the `open-external` IPC (`shell.openExternal`, http/https only) — never let a link navigate the app window. `normalizeBotMarkdown` escapes leading `[label]:` lines so tool-result formatting isn't silently eaten as markdown link-reference-definitions.
-
-### Wiki "error note" (팀 위키) — optimistic-locking write
-IPC `write-error-note` appends a row to a fixed Confluence page (id hardcoded `285802836`). It's a read-modify-write: GET current version → append row → PUT `version+1`. Confluence returns 409 on concurrent edits, so it retries up to 3× (re-GET latest, re-append) before surfacing `isConflict`. All user input is HTML-escaped (`escapeHtml`) before insertion because Confluence storage is XHTML. IPC `search-error-note` reads the same page and injects matching rows as top-priority context into the agent prompt (a lightweight curated-answer override layer).
-
-### Startup / setup gate
-`app.whenReady` calls `loadCredentials()` (best-effort decrypt of `credentials.enc`). On mount, `App.tsx` asks main `has-credentials`; the agent click opens chat instantly if credentials exist, else shows the setup screen. There is **no warmup/keepalive/network machinery** — it was all proxy cold-start mitigation and was removed. `config.userEmail` is now just a non-secret identity label (set at setup, stored in `localStorage`, used e.g. as wiki-author hint); the real readiness gate is `hasCredentials`.
-
-## Conventions / gotchas
-- Loading state is split by action: `isChatLoading` (chat) vs `isSubmittingNote` (wiki). Config save is synchronous. Keep them separate; don't reintroduce a shared `isLoading`.
-- `main/index.ts` sets `global.fetch = net.fetch` so the Gemini SDK uses Chromium networking to reach Google — but tool searches deliberately use `nodeHttpsFetch` instead (see above).
-- Secrets live only in `main` (`credentials.ts` in-memory + `safeStorage` at rest). Never route a key through the renderer or `localStorage`. `has-credentials` returns a boolean only.
-- Hardcoded values worth knowing: wiki page id `285802836` and fallback space `~jsjang` (`main/index.ts`), default spaces `['GCPTAM']` (`App.tsx`).
-- Renderer talks to main almost entirely via untyped `(window as any).electron.ipcRenderer.invoke(...)`. `config` (`{userEmail, confSpaces, jiraSpaces}`) is passed on each call and is the source of truth for search scope (no secrets).
+## Gotchas
+- `isChatLoading`/`isSubmittingNote`는 분리 유지, 합치지 말 것.
+- 시크릿은 렌더러/localStorage에 절대 노출 금지.
+- 하드코딩값: 위키 페이지 `285802836`, fallback space `~jsjang`, 기본 spaces `['GCPTAM']`.
