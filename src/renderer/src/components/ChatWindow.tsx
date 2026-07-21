@@ -1,6 +1,6 @@
 // src/components/ChatWindow.tsx
 import React, { useState, useRef, useEffect } from 'react'
-import { Settings, BookOpen, Send, Circle, X, Minus, Maximize2, Minimize2, Eraser } from 'lucide-react'
+import { Settings, BookOpen, Send, Circle, X, Minus, Maximize2, Minimize2, Eraser, RotateCcw } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
@@ -45,6 +45,7 @@ const MarkdownMessage = ({ text }: { text: string }) => (
 interface ChatWindowProps {
   toggleChat: (open: boolean) => void
   config: any
+  initialConfig: any
   isConfiguring: boolean
   setIsConfiguring: (val: boolean) => void
   saveConfigAndConnect: (config: any) => Promise<void>
@@ -71,7 +72,7 @@ interface ChatWindowProps {
 }
 
 export default function ChatWindow({
-  toggleChat, config, isConfiguring, setIsConfiguring, saveConfigAndConnect,
+  toggleChat, config, initialConfig, isConfiguring, setIsConfiguring, saveConfigAndConnect,
   messages, isChatLoading, isSubmittingNote, inputText, setInputText, handleSend, handleKeyDown,
   isErrorNoteOpen, setIsErrorNoteOpen, errorNoteForm, setErrorNoteForm, submitErrorNote,
   hasSavedSpaces, showAlert,
@@ -151,6 +152,42 @@ export default function ChatWindow({
     }, 260)
   }
 
+  // 스페이스 설정 되돌리기: 앱 실행 시점 스냅샷(initialConfig)으로 form 복귀.
+  // 위키 지우기 버튼과 같은 2단계 arm-confirm 흐름을 재사용하되, 되돌릴 게 없으면(스냅샷과 동일) 비활성.
+  const [isConfigRevertArmed, setIsConfigRevertArmed] = useState(false)
+  const [isConfigReverting, setIsConfigReverting] = useState(false)
+  const configRevertArmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    return () => { if (configRevertArmTimerRef.current) clearTimeout(configRevertArmTimerRef.current) }
+  }, [])
+
+  const isFormAtInitial =
+    JSON.stringify(form.jiraSpaces) === JSON.stringify(initialConfig.jiraSpaces) &&
+    JSON.stringify(form.confSpaces) === JSON.stringify(initialConfig.confSpaces)
+
+  const handleConfigRevertClick = (): void => {
+    if (!isConfigRevertArmed) {
+      setIsConfigRevertArmed(true)
+      if (configRevertArmTimerRef.current) clearTimeout(configRevertArmTimerRef.current)
+      configRevertArmTimerRef.current = setTimeout(() => setIsConfigRevertArmed(false), 3000)
+      return
+    }
+
+    if (configRevertArmTimerRef.current) clearTimeout(configRevertArmTimerRef.current)
+    setIsConfigRevertArmed(false)
+
+    const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    if (prefersReducedMotion) {
+      setForm({ ...initialConfig })
+      return
+    }
+    setIsConfigReverting(true)
+    setTimeout(() => {
+      setForm({ ...initialConfig })
+      setIsConfigReverting(false)
+    }, 260)
+  }
+
   const handleArrayChange = (type: 'confSpaces' | 'jiraSpaces', idx: number, val: string) => {
     const newArr = [...form[type]]; newArr[idx] = val; setForm({ ...form, [type]: newArr });
   }
@@ -220,11 +257,24 @@ export default function ChatWindow({
           {isConfiguring ? (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '40px', minHeight: 0, overflow: 'hidden' }}>
               <h3 style={{ color: '#fff', marginBottom: '8px', flexShrink: 0 }}>스페이스 연동 설정</h3>
-              <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '12px', marginBottom: '24px', flexShrink: 0 }}>
-                검색 대상 스페이스를 설정하세요.
-              </p>
-              
-              <div style={{ flex: 1, overflowY: 'auto', paddingRight: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '24px', flexShrink: 0 }}>
+                <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '12px', margin: 0 }}>
+                  검색 대상 스페이스를 설정하세요.
+                </p>
+                {hasSavedSpaces && (
+                  <button
+                    className={`inline-reset-btn${isConfigRevertArmed ? ' is-armed' : ''}`}
+                    onClick={handleConfigRevertClick}
+                    disabled={isFormAtInitial}
+                    title={isConfigRevertArmed ? '다시 누르면 처음 설정으로 되돌립니다' : '앱 실행 시점의 저장된 설정으로 되돌립니다'}
+                  >
+                    <RotateCcw size={11} strokeWidth={2} />
+                    {isConfigRevertArmed ? '정말요? 다시 누르면 되돌려요' : '처음 설정으로 되돌리기'}
+                  </button>
+                )}
+              </div>
+
+              <div className={`config-fields${isConfigReverting ? ' is-reverting' : ''}`} style={{ flex: 1, overflowY: 'auto', paddingRight: '10px' }}>
                 <p style={{ color: '#fff', fontSize: '12px', marginBottom: '4px' }}>1. Jira 타겟 스페이스</p>
                 {form.jiraSpaces.map((space: string, idx: number) => ( 
                   <div key={idx} style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
@@ -261,7 +311,7 @@ export default function ChatWindow({
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '24px', flexShrink: 0 }}>
                 <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '12px', margin: 0 }}>팀원들에게 공유할 내용을 기록합니다.</p>
                 <button
-                  className={`wiki-reset-btn${isWikiResetArmed ? ' is-armed' : ''}`}
+                  className={`inline-reset-btn${isWikiResetArmed ? ' is-armed' : ''}`}
                   onClick={handleWikiResetClick}
                   disabled={isWikiFormEmpty}
                   title={isWikiResetArmed ? '다시 누르면 모든 내용이 지워집니다' : '입력한 내용을 모두 지웁니다'}

@@ -29,6 +29,10 @@ export default function App() {
     jiraSpaces: safeParse('hive_jira_spaces', ['GCPTAM']),
   })
 
+  // 앱 실행 시점의 설정 스냅샷 — 설정 화면의 "처음 설정으로 되돌리기"가 복귀할 기준값.
+  // useRef가 첫 렌더의 config를 한 번만 캡처해 고정하므로, 세션 중 저장으로 config가 바뀌어도 불변.
+  const initialConfigRef = useRef(config)
+
   const hasSavedSpacesInitially = !!localStorage.getItem('hive_conf_spaces') && !!localStorage.getItem('hive_jira_spaces')
   // 스페이스 설정을 저장한 적이 없으면 채팅 진입 시 바로 설정 화면부터 보여준다
   const [isConfiguring, setIsConfiguring] = useState(!hasSavedSpacesInitially)
@@ -284,7 +288,7 @@ export default function App() {
           }}
         >
           <ChatWindow
-            toggleChat={toggleChat} config={config}
+            toggleChat={toggleChat} config={config} initialConfig={initialConfigRef.current}
             isConfiguring={isConfiguring} setIsConfiguring={setIsConfiguring} saveConfigAndConnect={saveConfigAndConnect}
             messages={messages as any} isChatLoading={isChatLoading} isSubmittingNote={isSubmittingNote} inputText={inputText} setInputText={setInputText}
             handleSend={handleSend} handleKeyDown={handleKeyDown}
