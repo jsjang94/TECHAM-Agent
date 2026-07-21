@@ -152,8 +152,9 @@ export default function ChatWindow({
     }, 260)
   }
 
-  // 스페이스 설정 되돌리기: 앱 실행 시점 스냅샷(initialConfig)으로 form 복귀.
-  // 위키 지우기 버튼과 같은 2단계 arm-confirm 흐름을 재사용하되, 되돌릴 게 없으면(스냅샷과 동일) 비활성.
+  // 스페이스 설정 되돌리기: 최초 스냅샷(initialConfig)으로 form 복귀.
+  // 위키 지우기 버튼과 같은 2단계 arm-confirm 흐름을 재사용.
+  // 이미 원본과 동일하면(되돌릴 게 없음) 비활성 — 단, "직전 저장값과 같은 상태"는 원본과 다를 수 있어 활성 유지.
   const [isConfigRevertArmed, setIsConfigRevertArmed] = useState(false)
   const [isConfigReverting, setIsConfigReverting] = useState(false)
   const configRevertArmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -266,7 +267,7 @@ export default function ChatWindow({
                     className={`inline-reset-btn${isConfigRevertArmed ? ' is-armed' : ''}`}
                     onClick={handleConfigRevertClick}
                     disabled={isFormAtInitial}
-                    title={isConfigRevertArmed ? '다시 누르면 처음 설정으로 되돌립니다' : '앱 실행 시점의 저장된 설정으로 되돌립니다'}
+                    title={isConfigRevertArmed ? '다시 누르면 처음 설정으로 되돌립니다' : '처음 저장했던 설정으로 되돌립니다'}
                   >
                     <RotateCcw size={11} strokeWidth={2} />
                     {isConfigRevertArmed ? '정말요? 다시 누르면 되돌려요' : '처음 설정으로 되돌리기'}
