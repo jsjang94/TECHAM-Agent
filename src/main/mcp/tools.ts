@@ -1,6 +1,7 @@
 import { SchemaType, FunctionDeclaration } from '@google/generative-ai';
 import * as cheerio from 'cheerio';
 import { request as httpsRequest } from 'https';
+import { getAtlassianAuth, getZendeskAuth } from '../credentials';
 
 // Electron net.fetch는 Chromium 세션 쿠키·Origin 헤더를 붙여 Jira XSRF를 유발.
 // Node.js https 모듈로 직접 호출해 순수 API 요청으로 처리.
@@ -70,11 +71,11 @@ export const workerToolDeclarations: FunctionDeclaration[] = [
     parameters: { 
       type: SchemaType.OBJECT, 
       properties: { 
-        keywords: { 
-          type: SchemaType.ARRAY, 
+        keywords: {
+          type: SchemaType.ARRAY,
           items: { type: SchemaType.STRING },
-          description: "검색할 핵심 키워드 목록 (예: ['결제', '오류', '가이드'])" 
-        } 
+          description: "검색할 핵심 키워드 목록. 반드시 중요한(질문의 핵심인) 단어부터 순서대로 나열 (예: ['결제', '오류', '가이드'])"
+        }
       }, 
       required: ["keywords"] 
     }
@@ -85,11 +86,11 @@ export const workerToolDeclarations: FunctionDeclaration[] = [
     parameters: { 
       type: SchemaType.OBJECT, 
       properties: { 
-        keywords: { 
-          type: SchemaType.ARRAY, 
+        keywords: {
+          type: SchemaType.ARRAY,
           items: { type: SchemaType.STRING },
-          description: "검색할 핵심 키워드 목록 (예: ['purchase', 'error', 'timeout'])" 
-        } 
+          description: "검색할 핵심 키워드 목록. 반드시 중요한(질문의 핵심인) 단어부터 순서대로 나열 (예: ['purchase', 'error', 'timeout'])"
+        }
       }, 
       required: ["keywords"] 
     }
@@ -100,11 +101,11 @@ export const workerToolDeclarations: FunctionDeclaration[] = [
     parameters: { 
       type: SchemaType.OBJECT, 
       properties: { 
-        keywords: { 
-          type: SchemaType.ARRAY, 
+        keywords: {
+          type: SchemaType.ARRAY,
           items: { type: SchemaType.STRING },
-          description: "검색할 핵심 키워드 목록 (예: ['환불', '지연', '영수증'])" 
-        } 
+          description: "검색할 핵심 키워드 목록. 반드시 중요한(질문의 핵심인) 단어부터 순서대로 나열 (예: ['환불', '지연', '영수증'])"
+        }
       }, 
       required: ["keywords"] 
     }
@@ -133,61 +134,6 @@ export const workerToolDeclarations: FunctionDeclaration[] = [
   }
 ];
 
-const PROXY_BASE_URL = 'https://techam-proxy.vercel.app';
-
-// 🌟 [핵심 변경] Atlassian (Jira/Confluence) 공통 토큰 발급 헬퍼 함수
-async function getAtlassianAuth(userEmail: string): Promise<{ authHeader: string, baseUrl: string } | { error: string }> {
-  try {
-    console.log(`[Atlassian Auth] 토큰 요청 시작 - userEmail: ${userEmail}`);
-    const tokenRes = await fetch(`${PROXY_BASE_URL}/api/proxy`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userEmail, target: 'atlassian-token' })
-    });
-
-    console.log(`[Atlassian Auth] 프록시 응답 상태: ${tokenRes.status}`);
-    if (!tokenRes.ok) {
-      const errBody = await tokenRes.text();
-      console.error(`[Atlassian Auth] 프록시 오류 응답 바디: ${errBody}`);
-      return { error: `Atlassian 인증 정보 획득 실패 (상태 코드: ${tokenRes.status})` };
-    }
-
-    const data = await tokenRes.json();
-    console.log(`[Atlassian Auth] 프록시 응답 키 목록: ${Object.keys(data).join(', ')}`);
-    console.log(`[Atlassian Auth] baseUrl: ${data.baseUrl}`);
-    console.log(`[Atlassian Auth] authHeader 존재 여부: ${!!data.authHeader}, 앞 20자: ${String(data.authHeader || '').substring(0, 20)}...`);
-
-    if (!data.baseUrl) return { error: "사내망 Atlassian 주소가 설정되지 않았습니다." };
-
-    return { authHeader: data.authHeader, baseUrl: data.baseUrl };
-  } catch (err: any) {
-    console.error(`[Atlassian Auth] 예외 발생: ${err.message}`);
-    return { error: `Atlassian 토큰 발급 중 시스템 에러: ${err.message}` };
-  }
-}
-
-// 🌟 Zendesk 공통 토큰 발급 헬퍼 함수 (Atlassian과 동일한 패턴)
-async function getZendeskAuth(userEmail: string): Promise<{ authHeader: string, baseUrl: string } | { error: string }> {
-  try {
-    const tokenRes = await fetch(`${PROXY_BASE_URL}/api/proxy`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userEmail, target: 'zendesk-token' })
-    });
-
-    if (!tokenRes.ok) {
-      return { error: `Zendesk 인증 정보 획득 실패 (상태 코드: ${tokenRes.status})` };
-    }
-
-    const data = await tokenRes.json();
-    if (!data.baseUrl) return { error: "Zendesk 주소가 설정되지 않았습니다." };
-
-    return { authHeader: data.authHeader, baseUrl: data.baseUrl };
-  } catch (err: any) {
-    return { error: `Zendesk 토큰 발급 중 시스템 에러: ${err.message}` };
-  }
-}
-
 export async function executeMcpTool(name: string, args: any, config: any): Promise<string> {
   try {
     // =========================================================================
@@ -196,41 +142,49 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
     if (name === 'search_jira') {
       const projects = config.jiraSpaces?.length > 0 ? `project in (${config.jiraSpaces.join(', ')}) AND ` : '';
       if (!args.keywords || args.keywords.length === 0) return "검색 키워드가 없습니다.";
-      const keywordQueries = args.keywords.map((k: string) => `text ~ "${k.replace(/"/g, '')}"`).join(' AND ');
-      const safeJql = `${projects}(${keywordQueries}) ORDER BY created DESC`;
+      const keywordClauses = args.keywords.map((k: string) => `text ~ "${k.replace(/"/g, '')}"`);
 
       // 🌟 공통 헬퍼 함수로 토큰 호출 단일화
-      const authResult = await getAtlassianAuth(config.userEmail);
-      if ('error' in authResult) return authResult.error;
-      const { authHeader, baseUrl } = authResult;
+      const { authHeader, baseUrl } = getAtlassianAuth();
 
-      console.log(`[Jira Search] 직접 호출 URL: ${baseUrl}/rest/api/3/search/jql`);
-      console.log(`[Jira Search] JQL: ${safeJql}`);
-      const res = await nodeHttpsFetch(`${baseUrl}/rest/api/3/search/jql`, {
-        method: 'POST',
-        headers: {
-          'Authorization': authHeader,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify({
-          jql: safeJql,
-          maxResults: 8,
-          fields: ["summary", "status", "description", "comment"]
-        })
-      });
+      // 최신 진행 상황(댓글 포함) 반영을 위해 updated 기준 정렬
+      const runJiraSearch = async (jql: string): Promise<any[] | string> => {
+        console.log(`[Jira Search] JQL: ${jql}`);
+        const res = await nodeHttpsFetch(`${baseUrl}/rest/api/3/search/jql`, {
+          method: 'POST',
+          headers: {
+            'Authorization': authHeader,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: JSON.stringify({
+            jql,
+            maxResults: 8,
+            fields: ["summary", "status", "description", "comment"]
+          })
+        });
+        console.log(`[Jira Search] 응답 상태: ${res.status}`);
+        if (!res.ok) {
+          const errBody = await res.text();
+          console.error(`[Jira Search] 오류 응답 바디: ${errBody}`);
+          return `사내 Jira API 직접 통신 실패 (상태 코드: ${res.status})`;
+        }
+        const data = await res.json();
+        return data.issues || [];
+      };
 
-      console.log(`[Jira Search] 응답 상태: ${res.status}`);
-      if (!res.ok) {
-        const errBody = await res.text();
-        console.error(`[Jira Search] 오류 응답 바디: ${errBody}`);
-        return `사내 Jira API 직접 통신 실패 (상태 코드: ${res.status})`;
+      // 1차: 모든 키워드 AND (정확 일치) → 0건이면 2차: OR (연관 검색) 폴백으로 재현율 확보
+      let issues = await runJiraSearch(`${projects}(${keywordClauses.join(' AND ')}) ORDER BY updated DESC`);
+      if (typeof issues === 'string') return issues;
+      let fallbackNote = '';
+      if (issues.length === 0 && keywordClauses.length > 1) {
+        issues = await runJiraSearch(`${projects}(${keywordClauses.join(' OR ')}) ORDER BY updated DESC`);
+        if (typeof issues === 'string') return issues;
+        fallbackNote = `[안내: 모든 키워드(${args.keywords.join(', ')})가 동시에 포함된 이슈는 없어, 일부 키워드만 일치하는 연관 이슈를 반환합니다. 질문과의 연관성을 직접 판단해서 활용하세요.]\n\n`;
       }
-      
-      const data = await res.json();
-      if (!data.issues || data.issues.length === 0) return `해당 키워드 조합(${args.keywords.join(', ')})으로 검색된 Jira 이슈가 없습니다.`;
+      if (issues.length === 0) return `해당 키워드 조합(${args.keywords.join(', ')})으로 검색된 Jira 이슈가 없습니다.`;
 
-      return data.issues.map((i: any) => {
+      return fallbackNote + issues.map((i: any) => {
         let desc = extractTextFromJira(i.fields?.description);
         let commentsText = '';
         if (i.fields?.comment?.comments) {
@@ -247,34 +201,43 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
     if (name === 'search_confluence') {
       const spaces = config.confSpaces?.length > 0 ? `space in (${config.confSpaces.map((s: string) => `"${s}"`).join(', ')}) AND ` : '';
       if (!args.keywords || args.keywords.length === 0) return "검색 키워드가 없습니다.";
-      const keywordQueries = args.keywords.map((k: string) => `text ~ "${k.replace(/"/g, '')}"`).join(' AND ');
-      const safeCql = `${spaces}(${keywordQueries}) order by created desc`;
+      const keywordClauses = args.keywords.map((k: string) => `text ~ "${k.replace(/"/g, '')}"`);
 
       // 🌟 공통 헬퍼 함수 재사용 (중복 코드 제거)
-      const authResult = await getAtlassianAuth(config.userEmail);
-      if ('error' in authResult) return authResult.error;
-      const { authHeader, baseUrl } = authResult;
+      const { authHeader, baseUrl } = getAtlassianAuth();
 
-      console.log(`[Confluence Search] 직접 호출 URL: ${baseUrl}/wiki/rest/api/content/search`);
-      const res = await nodeHttpsFetch(`${baseUrl}/wiki/rest/api/content/search?cql=${encodeURIComponent(safeCql)}&limit=6&expand=body.plain`, {
-        method: 'GET',
-        headers: {
-          'Authorization': authHeader,
-          'Accept': 'application/json'
+      // order by를 지정하지 않아 CQL 기본 정렬(관련도 relevance)을 사용 → 최신순보다 질문 연관 문서가 상위로
+      const runConfSearch = async (cql: string): Promise<any[] | string> => {
+        console.log(`[Confluence Search] CQL: ${cql}`);
+        const res = await nodeHttpsFetch(`${baseUrl}/wiki/rest/api/content/search?cql=${encodeURIComponent(cql)}&limit=8&expand=body.plain`, {
+          method: 'GET',
+          headers: {
+            'Authorization': authHeader,
+            'Accept': 'application/json'
+          }
+        });
+        console.log(`[Confluence Search] 응답 상태: ${res.status}`);
+        if (!res.ok) {
+          const errBody = await res.text();
+          console.error(`[Confluence Search] 오류 응답 바디: ${errBody}`);
+          return `사내 Confluence API 직접 통신 실패 (상태 코드: ${res.status})`;
         }
-      });
+        const data = await res.json();
+        return data.results || [];
+      };
 
-      console.log(`[Confluence Search] 응답 상태: ${res.status}`);
-      if (!res.ok) {
-        const errBody = await res.text();
-        console.error(`[Confluence Search] 오류 응답 바디: ${errBody}`);
-        return `사내 Confluence API 직접 통신 실패 (상태 코드: ${res.status})`;
+      // 1차: 모든 키워드 AND (정확 일치) → 0건이면 2차: OR (연관 검색) 폴백으로 재현율 확보
+      let results = await runConfSearch(`${spaces}(${keywordClauses.join(' AND ')})`);
+      if (typeof results === 'string') return results;
+      let fallbackNote = '';
+      if (results.length === 0 && keywordClauses.length > 1) {
+        results = await runConfSearch(`${spaces}(${keywordClauses.join(' OR ')})`);
+        if (typeof results === 'string') return results;
+        fallbackNote = `[안내: 모든 키워드(${args.keywords.join(', ')})가 동시에 포함된 문서는 없어, 일부 키워드만 일치하는 연관 문서를 반환합니다. 질문과의 연관성을 직접 판단해서 활용하세요.]\n\n`;
       }
-      
-      const data = await res.json();
-      if (!data.results || data.results.length === 0) return `검색된 Confluence 문서가 없습니다.`;
-      
-      return data.results.map((r: any) => {
+      if (results.length === 0) return `검색된 Confluence 문서가 없습니다.`;
+
+      return fallbackNote + results.map((r: any) => {
         const contentLink = `${baseUrl}/wiki${r._links?.webui || ''}`;
         return `[문서 제목]: ${r.title}\n[링크]: ${contentLink}\n[본문 내용]: ${(r.body?.plain?.value || '').substring(0, 3000)}`;
       }).join('\n\n--------------------\n\n');
@@ -285,22 +248,33 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
     // =========================================================================
     if (name === 'search_zendesk') {
       if (!args.keywords || args.keywords.length === 0) return "검색 키워드가 없습니다.";
-      const safeQuery = args.keywords.map((k: string) => `"${k.replace(/"/g, '')}"`).join(' ');
+      const quoted = args.keywords.map((k: string) => `"${k.replace(/"/g, '')}"`);
 
-      const authResult = await getZendeskAuth(config.userEmail);
-      if ('error' in authResult) return authResult.error;
-      const { authHeader, baseUrl } = authResult;
+      const { authHeader, baseUrl } = getZendeskAuth();
 
-      const res = await nodeHttpsFetch(`${baseUrl}/api/v2/search.json?query=type:ticket%20${encodeURIComponent(safeQuery)}`, {
-        method: 'GET',
-        headers: { 'Authorization': authHeader, 'Accept': 'application/json' }
-      });
+      const runZendeskSearch = async (query: string): Promise<any[] | string> => {
+        console.log(`[Zendesk Search] query: type:ticket ${query}`);
+        const res = await nodeHttpsFetch(`${baseUrl}/api/v2/search.json?query=type:ticket%20${encodeURIComponent(query)}`, {
+          method: 'GET',
+          headers: { 'Authorization': authHeader, 'Accept': 'application/json' }
+        });
+        if (!res.ok) return `Zendesk API 직접 통신 실패 (상태 코드: ${res.status})`;
+        const data = await res.json();
+        return data.results || [];
+      };
 
-      if (!res.ok) return `Zendesk API 직접 통신 실패 (상태 코드: ${res.status})`;
-      const data = await res.json();
-      if (!data.results || data.results.length === 0) return `검색된 Zendesk 티켓이 없습니다.`;
+      // 1차: 모든 키워드(공백 구분 = AND) → 0건이면 2차: 가장 핵심 키워드(첫 번째) 하나로 폴백
+      let found = await runZendeskSearch(quoted.join(' '));
+      if (typeof found === 'string') return found;
+      let fallbackNote = '';
+      if (found.length === 0 && quoted.length > 1) {
+        found = await runZendeskSearch(quoted[0]);
+        if (typeof found === 'string') return found;
+        fallbackNote = `[안내: 모든 키워드(${args.keywords.join(', ')})가 동시에 포함된 티켓은 없어, 핵심 키워드("${args.keywords[0]}")만으로 검색한 연관 티켓을 반환합니다. 질문과의 연관성을 직접 판단해서 활용하세요.]\n\n`;
+      }
+      if (found.length === 0) return `검색된 Zendesk 티켓이 없습니다.`;
 
-      const topTickets = data.results.slice(0, 8);
+      const topTickets = found.slice(0, 8);
       const ticketDetails = await Promise.all(topTickets.map(async (t: any) => {
         const ticketLink = `${baseUrl}/agent/tickets/${t.id}`;
         try {
@@ -317,7 +291,7 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
           return `[티켓 #${t.id}] ${t.subject}\n[링크]: ${ticketLink}\n[최초 문의]: ${t.description?.substring(0, 500)}...`;
         }
       }));
-      return ticketDetails.join('\n\n--------------------\n\n');
+      return fallbackNote + ticketDetails.join('\n\n--------------------\n\n');
     }
 
     // =========================================================================

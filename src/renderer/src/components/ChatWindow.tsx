@@ -110,7 +110,6 @@ export default function ChatWindow({
 
   // 스페이스 설정 저장 전에는 위키 화면 이동 차단
   const openWiki = () => {
-    if (!config.userEmail) return
     if (!hasSavedSpaces) { showAlert('⚙️', '스페이스 설정 후 이용 가능합니다.'); return }
     setIsErrorNoteOpen(true)
     setIsConfiguring(false)

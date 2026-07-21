@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/jsjang/techam-proxy/api/**)"
+    ]
+  },
+  "enabledPlugins": {
+    "superpowers@superpowers-dev": true
+  }
+}

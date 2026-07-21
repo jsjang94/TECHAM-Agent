@@ -7,6 +7,13 @@ import './assets/main.css'
 
 const WELCOME_MESSAGE = '모든 시스템과 정상적으로 연결되었습니다. 무엇을 검색할까요?'
 
+// 대화 히스토리: 최근 3왕복(6개)이면 후속 질문("그럼 애플은?")의 맥락 해소에 충분.
+// 봇 답변은 600자로 잘라서 전달 — 대명사/주제 파악에는 충분하되, 이전 답변의 긴 스크랩·URL 목록이
+// 통째로 실려 모델이 재검색 없이 과거 답을 재활용(환각·낡은 답 유발)하는 것을 막는다.
+// 재검색 강제는 시스템 프롬프트의 '재검색 원칙'과 함께 이중으로 방어한다.
+const HISTORY_LIMIT = 6
+const HISTORY_BOT_MAX_CHARS = 600
+
 // 채팅창 최대화/복원 애니메이션 (드래그 중에는 잠시 꺼서 커서를 즉시 따라가게 함)
 const CHAT_TRANSITION = 'left 0.25s ease, top 0.25s ease, width 0.25s ease, height 0.25s ease, border-radius 0.25s ease'
 
@@ -18,16 +25,17 @@ const safeParse = (key: string, defaultVal: string[]) => {
 export default function App() {
   const [isChatOpen, setIsChatOpen] = useState(false)
   const [config, setConfig] = useState({
-    userEmail: localStorage.getItem('hive_user_email') || '',
     confSpaces: safeParse('hive_conf_spaces', ['GCPTAM']),
     jiraSpaces: safeParse('hive_jira_spaces', ['GCPTAM']),
   })
-  
-  const [isConfiguring, setIsConfiguring] = useState(!config.userEmail)
+
+  const hasSavedSpacesInitially = !!localStorage.getItem('hive_conf_spaces') && !!localStorage.getItem('hive_jira_spaces')
+  // 스페이스 설정을 저장한 적이 없으면 채팅 진입 시 바로 설정 화면부터 보여준다
+  const [isConfiguring, setIsConfiguring] = useState(!hasSavedSpacesInitially)
   // 스페이스 설정을 저장한 적이 있는지 (저장 전에는 위키 화면 이동 차단 + 설정 화면 닫기 불가)
-  const [hasSavedSpaces, setHasSavedSpaces] = useState(
-    !!localStorage.getItem('hive_conf_spaces') && !!localStorage.getItem('hive_jira_spaces')
-  )
+  const [hasSavedSpaces, setHasSavedSpaces] = useState(hasSavedSpacesInitially)
+  // 로컬 자격증명(설정 코드)이 저장돼 있는지 — 채팅 진입 게이트. main에 물어서 세팅한다.
+  const [hasCredentials, setHasCredentials] = useState(false)
   const [isLoginOpen, setIsLoginOpen] = useState(false)
   const [inputText, setInputText] = useState('')
   const [isChatLoading, setIsChatLoading] = useState(false)
@@ -37,20 +45,8 @@ export default function App() {
   const [errorNoteForm, setErrorNoteForm] = useState({ author: '', question: '', answer: '', link: '' })
   const [isAgentHovered, setIsAgentHovered] = useState(false)
   const [isTransitioning, setIsTransitioning] = useState(false)
-  const [isCheckingConnection, setIsCheckingConnection] = useState(false)
-  const [connectionError, setConnectionError] = useState<string | null>(null)
-  const [isWarmedUp, setIsWarmedUp] = useState(false)
-  const [isWarmupFailed, setIsWarmupFailed] = useState(false)
-  const [isNetworkLost, setIsNetworkLost] = useState(false)
-  const [isNetworkReconnecting, setIsNetworkReconnecting] = useState(false)
-  const [warmupDotIndex, setWarmupDotIndex] = useState(0)
-  const [isLoggingIn, setIsLoggingIn] = useState(false)
-  const [isLoginRequesting, setIsLoginRequesting] = useState(false)
-  const [isLoginSuccess, setIsLoginSuccess] = useState(false)
-  const [loginDotIndex, setLoginDotIndex] = useState(0)
-  const [reconnectDotIndex, setReconnectDotIndex] = useState(0)
+  const [isSetupSuccess, setIsSetupSuccess] = useState(false)
   const [isChatMaximized, setIsChatMaximized] = useState(false)
-  const hasSessionRef = useRef(false)
   const [alertModal, setAlertModal] = useState<{ emoji: string; message: string } | null>(null)
   const showAlert = (emoji: string, message: string) => setAlertModal({ emoji, message })
   const [integrationsHealth, setIntegrationsHealth] = useState<{ gemini: boolean | null; atlassian: boolean | null; zendesk: boolean | null }>({ gemini: null, atlassian: null, zendesk: null })
@@ -66,30 +62,22 @@ export default function App() {
     top: Math.floor(window.screen.availHeight - 170 - 70 - CHAT_H), // 에이전트(170px) 위 60px 여유
   })
 
+  // 시작 시: 로컬 자격증명 존재 여부 확인 + 구버전(프록시/이메일 시절) localStorage 잔재 정리
   useEffect(() => {
+    localStorage.removeItem('hive_user_password')
+    localStorage.removeItem('hive_user_email')
     const electron = (window as any).electron
-    if (!electron?.ipcRenderer) return
-    const onReconnecting = () => { setIsNetworkReconnecting(true); }
-    const onError = () => { setIsNetworkLost(true); setIsNetworkReconnecting(true); }
-    const onRestored = () => { setIsNetworkLost(false); setIsNetworkReconnecting(false); }
-    electron.ipcRenderer.on('keepalive-reconnecting', onReconnecting)
-    electron.ipcRenderer.on('keepalive-network-error', onError)
-    electron.ipcRenderer.on('keepalive-restored', onRestored)
-    return () => {
-      electron.ipcRenderer.removeListener('keepalive-reconnecting', onReconnecting)
-      electron.ipcRenderer.removeListener('keepalive-network-error', onError)
-      electron.ipcRenderer.removeListener('keepalive-restored', onRestored)
-    }
+    electron?.ipcRenderer?.invoke('has-credentials').then((ok: boolean) => setHasCredentials(!!ok))
   }, [])
 
-  // 채팅창이 열려 있는 동안 Gemini/Atlassian/Zendesk 연결 상태를 확인하고,
+  // 채팅창이 열려 있는 동안 Gemini/Atlassian/Zendesk 연결 상태를 로컬 자격증명으로 직접 확인하고,
   // 셋 다 정상일 때만 웰컴 메시지를 표시 (시작하자마자 무조건 뜨지 않게)
   useEffect(() => {
     const electron = (window as any).electron
-    if (!isChatOpen || !config.userEmail || !electron?.ipcRenderer) return
+    if (!isChatOpen || !hasCredentials || !electron?.ipcRenderer) return
     let cancelled = false
     setIntegrationsHealth({ gemini: null, atlassian: null, zendesk: null })
-    electron.ipcRenderer.invoke('check-integrations-health', config.userEmail).then((result: { gemini: boolean; atlassian: boolean; zendesk: boolean }) => {
+    electron.ipcRenderer.invoke('check-integrations-health').then((result: { gemini: boolean; atlassian: boolean; zendesk: boolean }) => {
       if (cancelled) return
       setIntegrationsHealth(result)
       if (result.gemini && result.atlassian && result.zendesk) {
@@ -97,33 +85,12 @@ export default function App() {
       }
     })
     return () => { cancelled = true }
-  }, [isChatOpen, config.userEmail])
+  }, [isChatOpen, hasCredentials])
 
   useEffect(() => {
     const chatArea = document.getElementById('chat-scroll-area');
     if (chatArea) chatArea.scrollTo({ top: chatArea.scrollHeight, behavior: 'smooth' });
   }, [messages])
-
-  // 웜업 중 점 애니메이션 (클릭 후 활성화 중일 때만)
-  useEffect(() => {
-    if (!isCheckingConnection || isWarmedUp || isWarmupFailed) return
-    const id = setInterval(() => setWarmupDotIndex(i => (i + 1) % 3), 600)
-    return () => clearInterval(id)
-  }, [isCheckingConnection, isWarmedUp, isWarmupFailed])
-
-  // 로그인 중 점 애니메이션 (서버 통신 중일 때만)
-  useEffect(() => {
-    if (!isLoginRequesting) return
-    const id = setInterval(() => setLoginDotIndex(i => (i + 1) % 3), 600)
-    return () => clearInterval(id)
-  }, [isLoginRequesting])
-
-  // 네트워크 재연결 중 점 애니메이션
-  useEffect(() => {
-    if (!isNetworkReconnecting) return
-    const id = setInterval(() => setReconnectDotIndex(i => (i + 1) % 3), 600)
-    return () => clearInterval(id)
-  }, [isNetworkReconnecting])
 
   useEffect(() => {
     setIsAgentHovered(false)
@@ -177,76 +144,11 @@ export default function App() {
     dragOffsetRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top }
   }
 
-  const handleAgentClick = async (fromRetry = false) => {
-    if (isChatOpen || isTransitioning || isCheckingConnection || (!fromRetry && isWarmupFailed)) return
-
-    // 이미 로그인된 세션이면 웜업/로그인 체크 없이 바로 열기
-    if (hasSessionRef.current) {
-      toggleChat(true)
-      return
-    }
-
-    const electron = (window as any).electron
-    if (!electron?.ipcRenderer) {
-      setConnectionError('ELECTRON_IPC_UNAVAILABLE')
-      return
-    }
-
-    setIsCheckingConnection(true)
-    setIsWarmedUp(false)
-    setIsWarmupFailed(false)
-    setIsLoginSuccess(false)
-    setIsLoggingIn(false)
-    setIsLoginRequesting(false)
-    setConnectionError(null)
-
-    // 로그인 팝업을 띄운 채로 반환하는 경우 finally에서 isLoggingIn을 초기화하지 않음
-    let loginPopupShown = false
-
-    try {
-      // Step 1: 웜업 (메인 프로세스에서 최대 30회 시도 후 결과 반환)
-      const { ok: warmedUp } = await electron.ipcRenderer.invoke('warmup-proxy')
-      if (!warmedUp) { setIsWarmupFailed(true); return }
-      setIsWarmedUp(true)
-      await new Promise(r => setTimeout(r, 700)) // "에이전트 활성화 성공!" 잠깐 표시
-
-      // Step 2: 로그인 (최초 1회만)
-      const savedEmail = localStorage.getItem('hive_user_email')
-      const savedPassword = localStorage.getItem('hive_user_password')
-      if (!savedEmail || !savedPassword) {
-        loginPopupShown = true
-        setIsLoggingIn(true)
-        setIsLoginOpen(true)
-        return
-      }
-
-      setIsLoggingIn(true)
-      setIsLoginRequesting(true)
-      const { authorized } = await electron.ipcRenderer.invoke('validate-credentials', savedEmail, savedPassword)
-      setIsLoginRequesting(false)
-
-      if (!authorized) {
-        localStorage.removeItem('hive_user_email')
-        localStorage.removeItem('hive_user_password')
-        setConfig(prev => ({ ...prev, userEmail: '' }))
-        loginPopupShown = true
-        setIsLoginOpen(true)
-        return
-      }
-      setIsLoggingIn(false)
-
-      setConfig(prev => ({ ...prev, userEmail: savedEmail }))
-      hasSessionRef.current = true
-      setIsLoginSuccess(true)
-      await new Promise(r => setTimeout(r, 900))
-      setIsLoginSuccess(false)
-      toggleChat(true)
-
-    } finally {
-      setIsCheckingConnection(false)
-      setIsLoginRequesting(false)
-      if (!loginPopupShown) setIsLoggingIn(false)
-    }
+  // 프록시/웜업 제거: 자격증명이 있으면 즉시 채팅, 없으면 설정 코드 입력 팝업.
+  const handleAgentClick = () => {
+    if (isChatOpen || isTransitioning) return
+    if (hasCredentials) { toggleChat(true); return }
+    setIsLoginOpen(true)
   }
 
   const saveConfigAndConnect = async (newConfig: any) => {
@@ -265,13 +167,6 @@ export default function App() {
     showAlert('✅', '설정이 완료되었습니다.')
   }
 
-  const handleNetworkReconnect = () => {
-    setIsNetworkLost(false)
-    // isNetworkReconnecting은 keepalive-restored 수신 시 자동 해제
-    const electron = (window as any).electron
-    electron?.ipcRenderer?.send('retry-keepalive')
-  }
-
   const toggleChat = (open: boolean) => {
     setIsAgentHovered(false)
     setIsTransitioning(true)
@@ -283,8 +178,7 @@ export default function App() {
   }
 
   const handleSend = async () => {
-    // 🌟 1번 버그 해결 (apiKey 검사 제거)
-    if (!inputText.trim() || !config.userEmail) return
+    if (!inputText.trim() || !hasCredentials) return
     const userMsg = inputText
     setInputText('')
     setMessages(prev => [...prev, { text: userMsg, isBot: false, isSystem: false }])
@@ -303,8 +197,15 @@ export default function App() {
 
         let pureHistory = messages
           .filter(m => !m.isSystem && m.text !== WELCOME_MESSAGE)
-          .slice(-2)
-          .map(m => ({ role: m.isBot ? "model" : "user", parts: [{ text: m.text }] }));
+          .slice(-HISTORY_LIMIT)
+          .map(m => ({
+            role: m.isBot ? "model" : "user",
+            parts: [{
+              text: (m.isBot && m.text.length > HISTORY_BOT_MAX_CHARS)
+                ? m.text.slice(0, HISTORY_BOT_MAX_CHARS) + '\n...(이하 생략 — 자세한 내용이 필요하면 도구로 다시 검색할 것)'
+                : m.text
+            }]
+          }));
         if (pureHistory.length > 0 && pureHistory[0].role === 'model') pureHistory.shift();
 
         const response = await electron.ipcRenderer.invoke('chat-with-agent', config, finalMessageForAI, pureHistory);
@@ -351,74 +252,17 @@ export default function App() {
       {alertModal && (
         <AlertModal emoji={alertModal.emoji} message={alertModal.message} onClose={() => setAlertModal(null)} positionStyle={popupPosStyle} />
       )}
-      {isNetworkLost && (
-        <div className="interactable" style={{ ...popupPosStyle, backgroundColor: '#1c1c1e', borderRadius: '16px', padding: '24px 28px', border: '1px solid rgba(255,80,80,0.3)', width: '320px', boxSizing: 'border-box', textAlign: 'center', zIndex: 9999, boxShadow: '0 8px 32px rgba(0,0,0,0.6)' }}>
-          <h3 style={{ color: '#fff', marginBottom: '6px', fontSize: '15px' }}>네트워크 연결 끊김</h3>
-          <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '13px', marginBottom: '16px' }}>서버 유지에 10회 연속 실패했습니다.<br/>네트워크 상태를 확인해주세요.</p>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button
-              onClick={() => { setIsNetworkLost(false); setIsNetworkReconnecting(false); toggleChat(false); setIsWarmedUp(false); hasSessionRef.current = false; }}
-              style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', backgroundColor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px' }}
-            >
-              닫기
-            </button>
-            <button
-              onClick={handleNetworkReconnect}
-              style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', backgroundColor: 'rgba(255,159,10,0.2)', color: '#ff9f0a', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px' }}
-            >
-              재시도
-            </button>
-          </div>
-        </div>
-      )}
-      {isWarmupFailed && (
-        <div className="interactable" style={{ ...popupPosStyle, backgroundColor: '#1c1c1e', borderRadius: '16px', padding: '24px 28px', border: '1px solid rgba(255,80,80,0.3)', width: '320px', boxSizing: 'border-box', textAlign: 'center', zIndex: 9999, boxShadow: '0 8px 32px rgba(0,0,0,0.6)' }}>
-          <h3 style={{ color: '#fff', marginBottom: '6px', fontSize: '15px' }}>에이전트 활성화 실패</h3>
-          <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '13px', marginBottom: '16px' }}>Vercel 서버가 응답하지 않습니다.<br/>재시도하면 연결될 수 있습니다.</p>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button
-              onClick={() => setIsWarmupFailed(false)}
-              style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', backgroundColor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px' }}
-            >
-              닫기
-            </button>
-            <button
-              onClick={() => handleAgentClick(true)}
-              style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', backgroundColor: 'rgba(255,159,10,0.2)', color: '#ff9f0a', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px' }}
-            >
-              재시도
-            </button>
-          </div>
-        </div>
-      )}
-      {connectionError && (
-        <div className="interactable" style={{ ...popupPosStyle, backgroundColor: '#1c1c1e', borderRadius: '16px', padding: '24px 28px', border: '1px solid rgba(255,80,80,0.3)', width: '320px', boxSizing: 'border-box', textAlign: 'center', zIndex: 9999, boxShadow: '0 8px 32px rgba(0,0,0,0.6)' }}>
-          <h3 style={{ color: '#fff', marginBottom: '6px', fontSize: '15px' }}>프록시 서버 연결 실패</h3>
-          <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '13px', marginBottom: '12px' }}>네트워크를 확인하거나 잠시 후 다시 시도해주세요.</p>
-          <div style={{ backgroundColor: 'rgba(255,59,48,0.12)', border: '1px solid rgba(255,59,48,0.3)', borderRadius: '8px', padding: '8px 12px', marginBottom: '16px' }}>
-            <code style={{ color: '#ff6b6b', fontSize: '12px', wordBreak: 'break-all' }}>{connectionError}</code>
-          </div>
-          <button
-            onClick={() => setConnectionError(null)}
-            style={{ width: '100%', padding: '10px', borderRadius: '8px', border: 'none', backgroundColor: 'rgba(255,255,255,0.12)', color: '#fff', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px' }}
-          >
-            닫기
-          </button>
-        </div>
-      )}
       {isLoginOpen && (
         <LoginPopup
-          onLoginStart={() => setIsLoginRequesting(true)}
-          onLoginFail={() => setIsLoginRequesting(false)}
-          onSuccess={async (email) => {
-            setIsLoginRequesting(false)
-            setIsLoggingIn(false)
+          onSuccess={async () => {
             setIsLoginOpen(false)
-            setConfig(prev => ({ ...prev, userEmail: email }))
-            hasSessionRef.current = true
-            setIsLoginSuccess(true)
+            setHasCredentials(true)
+            // 설정 코드를 방금 입력했으면 localStorage에 예전 스페이스 값이 남아있어도
+            // 항상 스페이스 설정 화면부터 보여준다 (마운트 시점 계산에 기대지 않음)
+            setIsConfiguring(true)
+            setIsSetupSuccess(true)
             await new Promise(r => setTimeout(r, 900))
-            setIsLoginSuccess(false)
+            setIsSetupSuccess(false)
             toggleChat(true)
           }}
         />
@@ -444,7 +288,6 @@ export default function App() {
             isConfiguring={isConfiguring} setIsConfiguring={setIsConfiguring} saveConfigAndConnect={saveConfigAndConnect}
             messages={messages as any} isChatLoading={isChatLoading} isSubmittingNote={isSubmittingNote} inputText={inputText} setInputText={setInputText}
             handleSend={handleSend} handleKeyDown={handleKeyDown}
-            isNetworkReconnecting={isNetworkReconnecting}
             integrationsHealth={integrationsHealth}
             hasSavedSpaces={hasSavedSpaces} showAlert={showAlert}
             isErrorNoteOpen={isErrorNoteOpen} setIsErrorNoteOpen={setIsErrorNoteOpen}
@@ -463,19 +306,15 @@ export default function App() {
       {/* position: fixed 로 flex 레이아웃에서 완전히 분리 → 윈도우 리사이즈 중 움직임 없음 */}
       {/* 최대화 시 Dock으로 사라지듯 아래로 슬라이드, 복원 시 원위치 */}
       <div className="interactable" style={{ position: 'fixed', bottom: 0, left: 'calc(50% - 120px)', width: '240px', height: '222px', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', zIndex: 20, transform: isChatMaximized ? 'translateY(260px) scale(0.85)' : 'translateY(0) scale(1)', opacity: isChatMaximized ? 0 : 1, pointerEvents: isChatMaximized ? 'none' : 'auto', transition: 'transform 0.35s ease-in-out, opacity 0.3s ease' }}>
-        {/* 서버 상태 플로팅 바 */}
+        {/* 상태 플로팅 바 */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px 14px', backgroundColor: 'rgba(100,100,100,0.60)', borderRadius: '8px', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.25)', boxShadow: '0 4px 20px rgba(0,0,0,0.25)', marginBottom: '16px', zIndex: 1 }}>
-          {/* 프록시 연결 상태 점: 주황(워밍업 중) → 초록(준비됨) */}
-          <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: isWarmupFailed ? '#ff3b30' : isNetworkReconnecting ? '#ff9f0a' : (isWarmedUp && !isLoggingIn) ? '#34c759' : isCheckingConnection ? '#ff9f0a' : 'rgba(255,255,255,0.30)', boxShadow: isWarmupFailed ? '0 0 5px rgba(255,59,48,0.95)' : isNetworkReconnecting ? '0 0 5px rgba(255,159,10,0.85)' : (isWarmedUp && !isLoggingIn) ? '0 0 5px rgba(52,199,89,0.95)' : isCheckingConnection ? '0 0 5px rgba(255,159,10,0.85)' : 'none', animation: ((isCheckingConnection && !isWarmedUp && !isWarmupFailed) || isLoginRequesting || isNetworkReconnecting) ? 'statusPulse 1.4s ease-in-out infinite' : 'none', flexShrink: 0 }} />
+          {/* 상태 점: 설정 완료(초록) / 미설정(회색) */}
+          <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: hasCredentials ? '#34c759' : 'rgba(255,255,255,0.30)', boxShadow: hasCredentials ? '0 0 5px rgba(52,199,89,0.95)' : 'none', flexShrink: 0 }} />
           <span style={{ fontSize: '13px', fontWeight: '400', color: 'rgba(255,255,255,0.92)', whiteSpace: 'nowrap', letterSpacing: '-0.2px' }}>
-            {isNetworkReconnecting ? ['네트워크 연결 재시도 중..', '네트워크 연결 재시도 중...', '네트워크 연결 재시도 중....'][reconnectDotIndex]
-              : isChatOpen ? '명령 대기 중'
-              : isLoginSuccess ? '로그인 성공!'
-              : isLoggingIn ? ['로그인 중..', '로그인 중...', '로그인 중...'][loginDotIndex]
-              : isWarmedUp ? '에이전트 활성화 성공!'
-              : isWarmupFailed ? '에이전트 활성화 실패'
-              : isCheckingConnection ? ['에이전트 활성화 중..', '에이전트 활성화 중...', '에이전트 활성화 중....'][warmupDotIndex]
-              : '에이전트 대기 중'}
+            {isChatOpen ? '명령 대기 중'
+              : isSetupSuccess ? '설정 완료!'
+              : hasCredentials ? '에이전트 대기 중'
+              : '설정 코드 입력 필요'}
           </span>
         </div>
 
@@ -485,11 +324,11 @@ export default function App() {
         {/* 에이전트 이미지 */}
         <div
           onClick={() => handleAgentClick()}
-          style={{ width: '140px', height: '140px', position: 'relative', zIndex: 1, cursor: (isChatOpen || isCheckingConnection || isWarmupFailed) ? 'default' : 'pointer', transition: isTransitioning ? 'none' : 'transform 0.25s ease', marginBottom: '25px', transform: (isAgentHovered && !isTransitioning) ? 'scale(1.15)' : 'scale(1)', pointerEvents: isTransitioning ? 'none' : 'auto' }}
-          onMouseEnter={() => !isChatOpen && !isTransitioning && !isCheckingConnection && setIsAgentHovered(true)}
+          style={{ width: '140px', height: '140px', position: 'relative', zIndex: 1, cursor: isChatOpen ? 'default' : 'pointer', transition: isTransitioning ? 'none' : 'transform 0.25s ease', marginBottom: '25px', transform: (isAgentHovered && !isTransitioning) ? 'scale(1.15)' : 'scale(1)', pointerEvents: isTransitioning ? 'none' : 'auto' }}
+          onMouseEnter={() => !isChatOpen && !isTransitioning && setIsAgentHovered(true)}
           onMouseLeave={() => setIsAgentHovered(false)}
         >
-          <img src={techamAgentImg} alt="TECHAM Agent" style={{ width: '100%', height: '100%', objectFit: 'contain', filter: isCheckingConnection ? 'brightness(0.6) drop-shadow(0 10px 15px rgba(0,0,0,0.5))' : 'drop-shadow(0 10px 15px rgba(0,0,0,0.5))', transition: 'filter 0.2s ease' }} />
+          <img src={techamAgentImg} alt="TECHAM Agent" style={{ width: '100%', height: '100%', objectFit: 'contain', filter: 'drop-shadow(0 10px 15px rgba(0,0,0,0.5))', transition: 'filter 0.2s ease' }} />
         </div>
 
         {/* 앱 종료 버튼 */}

@@ -1,9 +1,13 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { workerToolDeclarations, executeMcpTool } from '../mcp/tools';
-
-const PROXY_BASE_URL = 'https://techam-proxy.vercel.app';
+import { getGeminiApiKey } from '../credentials';
 
 const SYSTEM_INSTRUCTION = `너는 사내 시스템(Jira, Confluence, Zendesk, Hive 등)의 데이터를 검색하고 분석하는 통합 AI 에이전트야. 사용자의 질문 의도를 파악하고, 데이터 조회가 필요한 경우 알맞은 도구를 사용해 팩트 기반의 답변을 작성해. 단순 대화나 도구 없이 답할 수 있는 질문은 도구 없이 바로 답변해.
+
+[🎯 다중 소스 종합 원칙]
+ 1. 사용자가 특정 시스템(Jira/Confluence/Zendesk 등)을 지목하지 않은 업무 질문이라면, 관련될 만한 시스템들을 모두 검색해서 교차 확인해라. 도구는 한 턴에 여러 개를 동시에 호출할 수 있다 (예: search_jira + search_confluence + search_zendesk 동시 호출).
+ 2. 여러 소스의 정보를 조합할 때는 내용이 서로 일치하는지 비교해라. 상충하면 더 최신이거나 공식적인 소스를 우선하되, 상충한다는 사실 자체를 답변에 명시해라 (예: "Jira 이슈에는 30분 주기로, 초기 설계 문서에는 3분으로 기재되어 있습니다").
+ 3. 검색 결과 맨 앞에 '[안내: ...]'가 붙어 있으면 정확히 일치하는 문서가 없어 연관 검색으로 대체된 것이다. 각 결과가 질문과 실제로 관련 있는지 신중히 판단하고, 관련성이 낮은 결과는 답변에 사용하지 마라.
 
 [📌 시스템별 세부 타격 전략]
  ■ 1. Hive 개발자 문서 (Hive SDK/가이드)
@@ -32,18 +36,18 @@ const SYSTEM_INSTRUCTION = `너는 사내 시스템(Jira, Confluence, Zendesk, H
 [🚨 공통 절대 규칙]
  1. 팩트 엄수: 검색된 결과에 기반해서만 답변하고, 절대 임의로 내용을 지어내거나 다른 섹션의 내용을 짜집기하지 마라.
  2. 링크 제공: 네가 참고한 모든 결과의 출처 링크(URL)는 사용자가 클릭할 수 있도록 [표시 텍스트](URL) 형태의 마크다운 링크로 반드시 제공해라. 툴 결과에 [링크] 항목이 있으면 어떤 경우에도 생략하지 마라.
- 3. 검색 결과 없음: 검색 결과가 없다면 없다고 솔직히 말해.`;
+ 3. 검색 결과 없음: 검색 결과가 없다면 없다고 솔직히 말해. 이때 어떤 시스템에서 어떤 키워드로 검색했는지 알려주고, 질문을 좁히거나 바꿀 방법을 제안해라.
+ 4. 재검색 원칙: 이전 대화 내용은 질문의 맥락(무엇을 가리키는지) 파악용으로만 사용해라. 문서·데이터에 대한 질문은 이전에 비슷한 답을 했더라도 반드시 이번 턴에 도구로 다시 검색해서 그 결과만을 근거로 답해라. 이전 답변에 있던 URL·수치·내용을 재검증 없이 재사용하는 것을 절대 금지한다.
+ 5. 답변 구조: 데이터 조회를 수행한 답변은 다음 순서로 작성해라 — ① 핵심 결론(1~3문장 요약) → ② 상세 근거(여러 소스를 참고했다면 소스별로 구분하고, 정리에 유리하면 표/목록 활용) → ③ 참고 링크 목록.`;
 
 export async function processUserMessage(userMessage: string, chatHistory: any[], config: any): Promise<string> {
-  const genAI = new GoogleGenerativeAI("NO_KEY_SECURE_MODE");
+  // 로컬에 저장된 실제 Gemini API 키로 구글에 직결 (프록시 제거)
+  const genAI = new GoogleGenerativeAI(getGeminiApiKey());
 
   const model = genAI.getGenerativeModel({
     model: "gemini-2.5-flash",
     systemInstruction: SYSTEM_INSTRUCTION,
     tools: [{ functionDeclarations: workerToolDeclarations }]
-  }, {
-    baseUrl: `${PROXY_BASE_URL}/api/gemini`,
-    customHeaders: { 'x-user-email': config.userEmail }
   });
 
   const chat = model.startChat({ history: chatHistory });

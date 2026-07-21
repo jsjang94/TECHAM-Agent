@@ -4,14 +4,10 @@ import { join } from 'path'
 import { optimizer, is } from '@electron-toolkit/utils'
 import { processUserMessage } from './agents/managerAgent'
 import { nodeHttpsFetch } from './mcp/tools'
+import { loadCredentials, saveCredentials, hasCredentials, getAtlassianAuth, getZendeskAuth, getGeminiApiKey } from './credentials'
 
 // Gemini SDK 등 서드파티 라이브러리의 fetch도 Chromium 네트워킹 사용하도록 전역 교체
 (global as any).fetch = net.fetch.bind(net)
-
-const PROXY_BASE_URL = 'https://techam-proxy.vercel.app';
-let keepAliveInterval: ReturnType<typeof setInterval> | null = null;
-let keepAliveRetries = 0;
-let keepAlivePingFn: (() => void) | null = null;
 
 // Confluence storage 포맷은 XHTML이라 사용자 입력을 그대로 넣으면 <, &, " 등이
 // 페이지 구조를 깨거나 의도치 않은 마크업으로 주입된다. HTML 엔티티로 이스케이프한다.
@@ -60,10 +56,11 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   app.on('browser-window-created', (_, window) => { optimizer.watchWindowShortcuts(window) })
+  // 저장된 로컬 자격증명을 메모리로 로드 (없으면 미설정 상태 → 렌더러가 설정 화면 표시)
+  loadCredentials()
   createWindow()
 
   ipcMain.on('quit-app', () => {
-    if (keepAliveInterval) clearInterval(keepAliveInterval);
     app.exit(0)
   })
 
@@ -94,128 +91,12 @@ app.whenReady().then(() => {
     }
   })
 
-  // 이메일+비밀번호 로그인 검증
-  ipcMain.handle('validate-credentials', async (_, email: string, password: string) => {
-    const url = `${PROXY_BASE_URL}/api/proxy`;
-    const MAX_RETRIES = 5;
-    const RETRY_DELAY_MS = 2000;
+  // 설정 코드(base64 JSON) 저장 — 렌더러가 붙여넣은 설정 코드를 받아 safeStorage로 암호화 저장.
+  // 키 값은 main에만 머물고 렌더러로 돌려주지 않는다.
+  ipcMain.handle('save-credentials', async (_, setupCode: string) => saveCredentials(setupCode));
 
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      console.log(`[Login] 시도 ${attempt}/${MAX_RETRIES} - email: ${email}`);
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10초 타임아웃
-        const res = await net.fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userEmail: email.trim(), userPassword: password.trim(), target: 'login' }),
-          signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-        const body = await res.text();
-        console.log(`[Login] 응답 상태: ${res.status}, 바디: ${body.substring(0, 200)}`);
-        return { authorized: res.status === 200 };
-      } catch (err: any) {
-        const cause = err.cause ? ` (cause: ${err.cause?.code || err.cause?.message || err.cause})` : '';
-        const errMsg = err.name === 'AbortError' ? '타임아웃(10s)' : err.message;
-        console.error(`[Login] 시도 ${attempt} 실패: ${errMsg}${cause}`);
-        if (attempt < MAX_RETRIES) {
-          console.log(`[Login] ${RETRY_DELAY_MS / 1000}초 후 재시도...`);
-          await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
-        } else {
-          console.error(`[Login] 최대 재시도 횟수 초과. 로그인 실패.`);
-          return { authorized: false };
-        }
-      }
-    }
-    return { authorized: false };
-  });
-
-  // Vercel 웜업 (최대 10회, 두 엔드포인트 병렬 핑, 어댑티브 타임아웃)
-  ipcMain.handle('warmup-proxy', async () => {
-    // 초반엔 짧게(콜드스타트 트리거 후 빠른 재시도), 후반엔 길게(긴 콜드스타트 대기)
-    const MAX_ATTEMPTS = 30;
-    // 초반: 짧게 반복해서 서버 깨우기, 후반: 길게 대기해서 콜드스타트 기다리기
-    const getTimeoutMs = (attempt: number) => attempt < 5 ? 5000 : attempt < 15 ? 10000 : 20000;
-
-    const ping = async (endpoint: string, timeoutMs: number): Promise<void> => {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-      try {
-        await net.fetch(`${PROXY_BASE_URL}${endpoint}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ target: 'ping' }),
-          signal: ctrl.signal
-        });
-      } finally {
-        clearTimeout(timer);
-      }
-    };
-
-    for (let i = 0; i < MAX_ATTEMPTS; i++) {
-      const timeoutMs = getTimeoutMs(i);
-      console.log(`[Warmup] 시도 (${i + 1}/${MAX_ATTEMPTS}) - 타임아웃: ${timeoutMs / 1000}s`);
-      try {
-        // 두 엔드포인트 동시에 핑 — 둘 다 응답해야 성공
-        await Promise.all([ping('/api/proxy', timeoutMs), ping('/api/gemini', timeoutMs)]);
-        console.log(`[Warmup] 성공 (${i + 1}번째 시도)`);
-        // 기존 인터벌 초기화 후 4분 간격 keep-alive 시작
-        if (keepAliveInterval) clearInterval(keepAliveInterval);
-        keepAliveRetries = 0;
-        const keepAlivePing = () => {
-          console.log('[KeepAlive] 서버 유지 핑...');
-          const p = (endpoint: string) => net.fetch(`${PROXY_BASE_URL}${endpoint}`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target: 'ping' })
-          });
-          Promise.allSettled([p('/api/proxy'), p('/api/gemini')]).then(([proxy, gemini]) => {
-            const proxyOk = proxy.status === 'fulfilled';
-            const geminiOk = gemini.status === 'fulfilled';
-            console.log(`[KeepAlive] /api/proxy ${proxyOk ? 'OK' : '실패'}`);
-            console.log(`[KeepAlive] /api/gemini ${geminiOk ? 'OK' : '실패'}`);
-            if (!proxyOk && !geminiOk) {
-              keepAliveRetries++;
-              if (keepAliveInterval) {
-                clearInterval(keepAliveInterval);
-                keepAliveInterval = null;
-              }
-              if (keepAliveRetries >= 10) {
-                console.error('[KeepAlive] 10회 재시도 실패 — 네트워크 에러 알림. 재시도 버튼 대기 중.');
-                keepAliveRetries = 0;
-                BrowserWindow.getAllWindows()[0]?.webContents.send('keepalive-network-error');
-                // 자동 재시도 없음 — 렌더러의 재시도 버튼으로만 재개
-              } else {
-                console.warn(`[KeepAlive] 네트워크 단절 감지, 30초 후 재시도 (${keepAliveRetries}/10)...`);
-                if (keepAliveRetries === 1) {
-                  // 첫 실패 시 즉시 렌더러에 재연결 중 상태 알림 (팝업 없이 스피너만)
-                  BrowserWindow.getAllWindows()[0]?.webContents.send('keepalive-reconnecting');
-                }
-                setTimeout(keepAlivePing, 30 * 1000);
-              }
-            } else {
-              keepAliveRetries = 0;
-              if (!keepAliveInterval) {
-                console.log('[KeepAlive] 연결 복구 — 정상 간격(3분)으로 재개');
-                BrowserWindow.getAllWindows()[0]?.webContents.send('keepalive-restored');
-                keepAliveInterval = setInterval(keepAlivePing, 3 * 60 * 1000);
-              }
-            }
-          });
-        };
-        keepAlivePingFn = keepAlivePing;
-        keepAliveInterval = setInterval(keepAlivePing, 3 * 60 * 1000);
-        return { ok: true };
-      } catch (err: any) {
-        const isTimeout = err.name === 'AbortError';
-        const code = isTimeout ? 'TIMEOUT' : (err.cause?.code || err.message || 'FETCH_FAILED');
-        console.error(`[Warmup] 시도 ${i + 1}/${MAX_ATTEMPTS} 실패: ${code}`);
-        if (i < MAX_ATTEMPTS - 1) await new Promise(r => setTimeout(r, isTimeout ? 500 : 2000));
-      }
-    }
-    return { ok: false };
-  });
-
-  ipcMain.on('retry-keepalive', () => keepAlivePingFn?.());
+  // 자격증명 설정 여부만 반환 (렌더러 게이트용) — 실제 키 값은 절대 노출하지 않음
+  ipcMain.handle('has-credentials', async () => hasCredentials());
 
   // 🌟 [기존 코드 유지] 멀티 에이전트 통신 파이프라인
   ipcMain.handle('chat-with-agent', async (_, config, userMessage, chatHistory) => {
@@ -227,38 +108,14 @@ app.whenReady().then(() => {
     }
   });
 
-  // Atlassian 자격증명 헬퍼
-  const getAtlassianAuth = async (userEmail: string): Promise<{ authHeader: string, baseUrl: string }> => {
-    const res = await net.fetch(`${PROXY_BASE_URL}/api/proxy`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userEmail, target: 'atlassian-token' })
-    });
-    if (!res.ok) throw new Error(`Atlassian 인증 실패 (${res.status})`);
-    const data = await res.json();
-    if (!data.baseUrl) throw new Error('Atlassian baseUrl 없음');
-    return { authHeader: data.authHeader, baseUrl: data.baseUrl };
-  };
-
-  // Zendesk 자격증명 헬퍼
-  const getZendeskAuth = async (userEmail: string): Promise<{ authHeader: string, baseUrl: string }> => {
-    const res = await net.fetch(`${PROXY_BASE_URL}/api/proxy`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userEmail, target: 'zendesk-token' })
-    });
-    if (!res.ok) throw new Error(`Zendesk 인증 실패 (${res.status})`);
-    const data = await res.json();
-    if (!data.baseUrl) throw new Error('Zendesk baseUrl 없음');
-    return { authHeader: data.authHeader, baseUrl: data.baseUrl };
-  };
-
-  // Gemini / Atlassian / Zendesk 연결 상태 확인 (채팅창 상단 상태 표시용)
-  ipcMain.handle('check-integrations-health', async (_, userEmail: string) => {
+  // Gemini / Atlassian / Zendesk 연결 상태 확인 (채팅창 상단 상태 표시용) — 로컬 자격증명으로 직결
+  ipcMain.handle('check-integrations-health', async () => {
     const checkGemini = async (): Promise<boolean> => {
       try {
-        // 모델 목록 조회 — 토큰을 소모하지 않는 가장 가벼운 엔드포인트로 연결만 확인
-        const res = await net.fetch(`${PROXY_BASE_URL}/api/gemini/v1beta/models`, {
+        // 모델 목록 조회 — 토큰을 소모하지 않는 가장 가벼운 엔드포인트로 연결만 확인 (키는 헤더로)
+        const res = await net.fetch('https://generativelanguage.googleapis.com/v1beta/models', {
           method: 'GET',
-          headers: { 'x-user-email': userEmail }
+          headers: { 'x-goog-api-key': getGeminiApiKey() }
         });
         console.log(`[Health/Gemini] 응답 상태: ${res.status}`);
         if (!res.ok) console.error(`[Health/Gemini] 실패 응답 바디: ${(await res.text()).substring(0, 500)}`);
@@ -271,7 +128,7 @@ app.whenReady().then(() => {
 
     const checkAtlassian = async (): Promise<boolean> => {
       try {
-        const { authHeader, baseUrl } = await getAtlassianAuth(userEmail);
+        const { authHeader, baseUrl } = getAtlassianAuth();
         const res = await nodeHttpsFetch(`${baseUrl}/rest/api/3/myself`, {
           method: 'GET', headers: { 'Authorization': authHeader, 'Accept': 'application/json' }
         });
@@ -286,7 +143,7 @@ app.whenReady().then(() => {
 
     const checkZendesk = async (): Promise<boolean> => {
       try {
-        const { authHeader, baseUrl } = await getZendeskAuth(userEmail);
+        const { authHeader, baseUrl } = getZendeskAuth();
         const res = await nodeHttpsFetch(`${baseUrl}/api/v2/users/me.json`, {
           method: 'GET', headers: { 'Authorization': authHeader, 'Accept': 'application/json' }
         });
@@ -304,9 +161,9 @@ app.whenReady().then(() => {
   });
 
   // 🌟 [기존 코드 유지] 오답노트 검색
-  ipcMain.handle('search-error-note', async (_, config, userQuestion) => {
+  ipcMain.handle('search-error-note', async (_, _config, userQuestion) => {
     try {
-      const { authHeader, baseUrl } = await getAtlassianAuth(config.userEmail);
+      const { authHeader, baseUrl } = getAtlassianAuth();
       const res = await net.fetch(`${baseUrl}/wiki/rest/api/content/285802836?expand=body.storage`, {
         method: 'GET', headers: { 'Authorization': authHeader, 'Accept': 'application/json' }
       });
@@ -351,10 +208,10 @@ app.whenReady().then(() => {
   });
 
   // 🌟 [기존 코드 유지] 오답노트 등록
-  ipcMain.handle('write-error-note', async (_, config, noteData) => {
+  ipcMain.handle('write-error-note', async (_, _config, noteData) => {
     try {
       const pageId = '285802836';
-      const { authHeader, baseUrl } = await getAtlassianAuth(config.userEmail);
+      const { authHeader, baseUrl } = getAtlassianAuth();
       const confluenceHeaders = { 'Authorization': authHeader, 'Content-Type': 'application/json', 'Accept': 'application/json' };
 
       // 추가할 행은 노트 내용에만 의존하므로 재시도해도 동일하다 → 루프 밖에서 한 번만 만든다.
