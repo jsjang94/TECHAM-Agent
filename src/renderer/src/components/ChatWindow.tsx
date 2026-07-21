@@ -1,6 +1,6 @@
 // src/components/ChatWindow.tsx
-import React, { useState } from 'react'
-import { Settings, BookOpen, Send, Circle, X, Minus, Maximize2, Minimize2 } from 'lucide-react'
+import React, { useState, useRef, useEffect } from 'react'
+import { Settings, BookOpen, Send, Circle, X, Minus, Maximize2, Minimize2, Eraser } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
@@ -115,6 +115,42 @@ export default function ChatWindow({
     setIsConfiguring(false)
   }
 
+  // 위키 등록 폼 초기화: 오답노트를 지우개로 지우는 흐름 — 1차 클릭은 3초짜리 확인 대기(arm),
+  // 그 안에 재클릭해야 실제로 지운다. 답변란처럼 긴 글을 실수로 날리는 사고를 막기 위함
+  // (이 앱엔 확인 모달이 없어 새로 만들기보다 버튼 자체 상태로 처리).
+  const [isWikiResetArmed, setIsWikiResetArmed] = useState(false)
+  const [isWikiWiping, setIsWikiWiping] = useState(false)
+  const wikiResetArmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    return () => { if (wikiResetArmTimerRef.current) clearTimeout(wikiResetArmTimerRef.current) }
+  }, [])
+
+  const isWikiFormEmpty =
+    !errorNoteForm.author && !errorNoteForm.question && !errorNoteForm.answer && !errorNoteForm.link
+
+  const handleWikiResetClick = (): void => {
+    if (!isWikiResetArmed) {
+      setIsWikiResetArmed(true)
+      if (wikiResetArmTimerRef.current) clearTimeout(wikiResetArmTimerRef.current)
+      wikiResetArmTimerRef.current = setTimeout(() => setIsWikiResetArmed(false), 3000)
+      return
+    }
+
+    if (wikiResetArmTimerRef.current) clearTimeout(wikiResetArmTimerRef.current)
+    setIsWikiResetArmed(false)
+
+    const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    if (prefersReducedMotion) {
+      setErrorNoteForm({ author: '', question: '', answer: '', link: '' })
+      return
+    }
+    setIsWikiWiping(true)
+    setTimeout(() => {
+      setErrorNoteForm({ author: '', question: '', answer: '', link: '' })
+      setIsWikiWiping(false)
+    }, 260)
+  }
+
   const handleArrayChange = (type: 'confSpaces' | 'jiraSpaces', idx: number, val: string) => {
     const newArr = [...form[type]]; newArr[idx] = val; setForm({ ...form, [type]: newArr });
   }
@@ -222,26 +258,37 @@ export default function ChatWindow({
             /* 💡 오답노트 화면 (안쪽 옵션들만 스크롤) */
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '40px', minHeight: 0, overflow: 'hidden' }}>
               <h3 style={{ color: '#fff', marginBottom: '8px', flexShrink: 0 }}>📝 팀 위키 문서 등록</h3>
-              <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '12px', marginBottom: '24px', flexShrink: 0 }}>팀원들에게 공유할 내용을 기록합니다.</p>
-              
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '24px', flexShrink: 0 }}>
+                <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '12px', margin: 0 }}>팀원들에게 공유할 내용을 기록합니다.</p>
+                <button
+                  className={`wiki-reset-btn${isWikiResetArmed ? ' is-armed' : ''}`}
+                  onClick={handleWikiResetClick}
+                  disabled={isWikiFormEmpty}
+                  title={isWikiResetArmed ? '다시 누르면 모든 내용이 지워집니다' : '입력한 내용을 모두 지웁니다'}
+                >
+                  <Eraser size={11} strokeWidth={2} />
+                  {isWikiResetArmed ? '정말요? 다시 누르면 지워요' : '모두 지우기'}
+                </button>
+              </div>
+
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto', paddingRight: '10px' }}>
                 <p style={{ color: '#fff', fontSize: '12px', marginBottom: '4px' }}>1. 등록자</p>
-                <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+                <div className={`wiki-field${isWikiWiping ? ' is-wiping' : ''}`} style={{ display: 'flex', gap: '8px', marginBottom: '10px', transitionDelay: isWikiWiping ? '0ms' : undefined }}>
                   <input value={errorNoteForm.author} onChange={e => setErrorNoteForm({...errorNoteForm, author: e.target.value})} style={{ ...inputStyle, marginBottom: 0 }} />
                 </div>
 
                 <p style={{ color: '#fff', fontSize: '12px', marginBottom: '4px' }}>2. 질문(키워드)</p>
-                <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+                <div className={`wiki-field${isWikiWiping ? ' is-wiping' : ''}`} style={{ display: 'flex', gap: '8px', marginBottom: '10px', transitionDelay: isWikiWiping ? '60ms' : undefined }}>
                   <textarea value={errorNoteForm.question} onChange={e => setErrorNoteForm({...errorNoteForm, question: e.target.value})} style={{ ...inputStyle, marginBottom: 0, height: '60px', resize: 'vertical' }} />
                 </div>
 
                 <p style={{ color: '#fff', fontSize: '12px', marginBottom: '4px' }}>3. 올바른 답변</p>
-                <div style={{ display: 'flex', gap: '8px', marginBottom: '10px', flex: 1 }}>
+                <div className={`wiki-field${isWikiWiping ? ' is-wiping' : ''}`} style={{ display: 'flex', gap: '8px', marginBottom: '10px', flex: 1, transitionDelay: isWikiWiping ? '120ms' : undefined }}>
                   <textarea value={errorNoteForm.answer} onChange={e => setErrorNoteForm({...errorNoteForm, answer: e.target.value})} style={{ ...inputStyle, marginBottom: 0, flex: 1, minHeight: '80px', resize: 'vertical' }} />
                 </div>
 
                 <p style={{ color: '#fff', fontSize: '12px', marginBottom: '4px' }}>4. 참고 링크 (선택)</p>
-                <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+                <div className={`wiki-field${isWikiWiping ? ' is-wiping' : ''}`} style={{ display: 'flex', gap: '8px', marginBottom: '10px', transitionDelay: isWikiWiping ? '180ms' : undefined }}>
                   <input value={errorNoteForm.link} onChange={e => setErrorNoteForm({...errorNoteForm, link: e.target.value})} style={{ ...inputStyle, marginBottom: 0 }} />
                 </div>
               </div>

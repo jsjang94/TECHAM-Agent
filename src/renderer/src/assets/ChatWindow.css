@@ -97,6 +97,36 @@
 }
 .app-header-icon-btn:hover { background-color: rgba(255, 255, 255, 0.1); }
 
+/* 위키 등록 폼 초기화 버튼 — 지우개로 오답노트를 지우는 흐름.
+   1차 클릭은 확인 대기(is-armed)만 하고, 재클릭이 실제로 지운다 (등록/닫기와 실수로 헷갈리지 않도록 조용한 톤) */
+.wiki-reset-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
+  transition: background-color 0.15s, color 0.15s;
+}
+.wiki-reset-btn:hover { background-color: rgba(255, 159, 10, 0.12); color: #ff9f0a; }
+.wiki-reset-btn:focus-visible { outline: 1px solid #ff9f0a; outline-offset: 2px; }
+.wiki-reset-btn.is-armed { background-color: rgba(255, 159, 10, 0.16); color: #ff9f0a; }
+.wiki-reset-btn:disabled { color: rgba(255, 255, 255, 0.18); cursor: default; }
+.wiki-reset-btn:disabled:hover { background-color: transparent; }
+
+/* 초기화 확정 시 필드가 위→아래로 순서대로 지워지는 모습을 보여주는 트랜지션 (지우개 스트로크 은유) */
+.wiki-field { transition: opacity 0.18s ease, transform 0.18s ease; }
+.wiki-field.is-wiping { opacity: 0; transform: translateY(-6px); }
+@media (prefers-reduced-motion: reduce) {
+  .wiki-field { transition: none; }
+}
+
 .app-header-status {
   display: flex;
   align-items: center;
