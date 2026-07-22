@@ -96,6 +96,26 @@
   transition: background-color 0.15s;
 }
 .app-header-icon-btn:hover { background-color: rgba(255, 255, 255, 0.1); }
+.app-header-icon-btn:disabled { color: rgba(255, 255, 255, 0.3); cursor: default; }
+.app-header-icon-btn:disabled:hover { background-color: transparent; }
+.app-header-icon-btn.is-spinning svg { animation: spin 0.8s linear infinite; }
+
+/* 위키 아이콘 클릭 시 표지가 열리듯 한 번 젖혀졌다 안착 (책등을 축으로 회전+폭 압축/과회복) */
+@keyframes bookOpen {
+  0%   { transform: rotate(0deg) scaleX(1); }
+  35%  { transform: rotate(-10deg) scaleX(0.88); }
+  70%  { transform: rotate(5deg) scaleX(1.06); }
+  100% { transform: rotate(0deg) scaleX(1); }
+}
+.wiki-icon-anim { display: inline-flex; transform-origin: 50% 50%; animation: bookOpen 0.42s ease-out; }
+
+/* 설정 아이콘 클릭 시 톱니가 한 칸 돌아갔다 제자리로 스냅되는 느낌 (라쳇 클릭) */
+@keyframes gearAdjust {
+  0%   { transform: rotate(0deg) scale(1); }
+  50%  { transform: rotate(26deg) scale(0.92); }
+  100% { transform: rotate(0deg) scale(1); }
+}
+.settings-icon-anim { display: inline-flex; transform-origin: 50% 50%; animation: gearAdjust 0.3s cubic-bezier(0.65, 0, 0.35, 1); }
 
 /* 인라인 되돌리기/지우기 버튼 (위키 "모두 지우기", 설정 "처음 설정으로 되돌리기" 공용) —
    1차 클릭은 확인 대기(is-armed)만 하고, 재클릭이 실제로 실행된다. 하단 액션 버튼과 실수로 헷갈리지 않도록 조용한 톤 */
@@ -129,6 +149,9 @@
 @media (prefers-reduced-motion: reduce) {
   .wiki-field,
   .config-fields { transition: none; }
+  .wiki-icon-anim,
+  .settings-icon-anim,
+  .app-header-icon-btn.is-spinning svg { animation: none; }
 }
 
 .app-header-status {

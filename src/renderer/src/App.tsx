@@ -71,6 +71,7 @@ export default function App() {
   const [alertModal, setAlertModal] = useState<{ emoji: string; message: string } | null>(null)
   const showAlert = (emoji: string, message: string) => setAlertModal({ emoji, message })
   const [integrationsHealth, setIntegrationsHealth] = useState<{ gemini: boolean | null; atlassian: boolean | null; zendesk: boolean | null }>({ gemini: null, atlassian: null, zendesk: null })
+  const [isCheckingHealth, setIsCheckingHealth] = useState(false)
 
   // 채팅창 CSS 드래그용 refs
   const chatRef = useRef<HTMLDivElement>(null)
@@ -91,15 +92,20 @@ export default function App() {
     electron?.ipcRenderer?.invoke('has-credentials').then((ok: boolean) => setHasCredentials(!!ok))
   }, [])
 
-  // 채팅창이 열려 있는 동안 Gemini/Atlassian/Zendesk 연결 상태를 로컬 자격증명으로 직접 확인하고,
-  // 셋 다 정상일 때만 웰컴 메시지를 표시 (시작하자마자 무조건 뜨지 않게)
-  useEffect(() => {
+  // Gemini/Atlassian/Zendesk 연결 상태를 로컬 자격증명으로 직접 확인 (상태 반영은 호출부에서)
+  const fetchIntegrationsHealth = async (): Promise<{ gemini: boolean; atlassian: boolean; zendesk: boolean } | null> => {
     const electron = (window as any).electron
-    if (!isChatOpen || !hasCredentials || !electron?.ipcRenderer) return
+    if (!electron?.ipcRenderer) return null
+    return electron.ipcRenderer.invoke('check-integrations-health')
+  }
+
+  // 채팅창이 열려 있는 동안 위 헬스체크를 실행하고, 셋 다 정상일 때만 웰컴 메시지를 표시 (시작하자마자 무조건 뜨지 않게)
+  useEffect(() => {
+    if (!isChatOpen || !hasCredentials) return
     let cancelled = false
     setIntegrationsHealth({ gemini: null, atlassian: null, zendesk: null })
-    electron.ipcRenderer.invoke('check-integrations-health').then((result: { gemini: boolean; atlassian: boolean; zendesk: boolean }) => {
-      if (cancelled) return
+    fetchIntegrationsHealth().then(result => {
+      if (cancelled || !result) return
       setIntegrationsHealth(result)
       if (result.gemini && result.atlassian && result.zendesk) {
         setMessages(prev => prev.length === 0 ? [{ text: WELCOME_MESSAGE, isBot: true, isSystem: false }] : prev)
@@ -107,6 +113,15 @@ export default function App() {
     })
     return () => { cancelled = true }
   }, [isChatOpen, hasCredentials])
+
+  // 헤더의 새로고침 버튼: 연결 실패 시 자격증명 재로드 없이 헬스체크만 수동으로 다시 실행
+  const retryIntegrationsHealth = () => {
+    if (isCheckingHealth) return
+    setIsCheckingHealth(true)
+    fetchIntegrationsHealth()
+      .then(result => { if (result) setIntegrationsHealth(result) })
+      .finally(() => setIsCheckingHealth(false))
+  }
 
   useEffect(() => {
     const chatArea = document.getElementById('chat-scroll-area');
@@ -310,6 +325,7 @@ export default function App() {
             messages={messages as any} isChatLoading={isChatLoading} isSubmittingNote={isSubmittingNote} inputText={inputText} setInputText={setInputText}
             handleSend={handleSend} handleKeyDown={handleKeyDown}
             integrationsHealth={integrationsHealth}
+            isCheckingHealth={isCheckingHealth} onRetryConnections={retryIntegrationsHealth}
             hasSavedSpaces={hasSavedSpaces} showAlert={showAlert}
             isErrorNoteOpen={isErrorNoteOpen} setIsErrorNoteOpen={setIsErrorNoteOpen}
             errorNoteForm={errorNoteForm} setErrorNoteForm={setErrorNoteForm} submitErrorNote={submitErrorNote}

@@ -1,6 +1,6 @@
 // src/components/ChatWindow.tsx
 import React, { useState, useRef, useEffect } from 'react'
-import { Settings, BookOpen, Send, Circle, X, Minus, Maximize2, Minimize2, Eraser, RotateCcw } from 'lucide-react'
+import { Settings, BookOpen, Send, Circle, X, Minus, Maximize2, Minimize2, Eraser, RotateCcw, RefreshCw } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
@@ -69,6 +69,8 @@ interface ChatWindowProps {
   onMaximize: () => void
   isNetworkReconnecting?: boolean
   integrationsHealth: { gemini: boolean | null; atlassian: boolean | null; zendesk: boolean | null }
+  isCheckingHealth: boolean
+  onRetryConnections: () => void
 }
 
 export default function ChatWindow({
@@ -77,7 +79,7 @@ export default function ChatWindow({
   isErrorNoteOpen, setIsErrorNoteOpen, errorNoteForm, setErrorNoteForm, submitErrorNote,
   hasSavedSpaces, showAlert,
   onTitlebarMouseDown, isChatMaximized, onMinimize, onMaximize,
-  isNetworkReconnecting = false, integrationsHealth
+  isNetworkReconnecting = false, integrationsHealth, isCheckingHealth, onRetryConnections
 }: ChatWindowProps) {
 
   const [form, setForm] = useState(config)
@@ -109,9 +111,14 @@ export default function ChatWindow({
   const footerCloseBtnStyle: React.CSSProperties = { ...footerBtnBase, backgroundColor: '#d1d1d6', color: '#1c1c1e' }
   const footerSubmitBtnStyle: React.CSSProperties = { ...footerBtnBase, backgroundColor: 'var(--hive-blue)', color: '#fff' }
 
+  // 헤더 아이콘 클릭 시 1회성 마이크로 애니메이션 재생 트리거 — key를 바꿔 강제 리마운트해 CSS 애니메이션을 처음부터 다시 실행
+  const [wikiIconPlay, setWikiIconPlay] = useState(0)
+  const [settingsIconPlay, setSettingsIconPlay] = useState(0)
+
   // 스페이스 설정 저장 전에는 위키 화면 이동 차단
   const openWiki = () => {
     if (!hasSavedSpaces) { showAlert('⚙️', '스페이스 설정 후 이용 가능합니다.'); return }
+    setWikiIconPlay(k => k + 1)
     setIsErrorNoteOpen(true)
     setIsConfiguring(false)
   }
@@ -240,15 +247,21 @@ export default function ChatWindow({
         </div>
         <div className="app-header-actions">
           <button
+            className={`app-header-icon-btn${isCheckingHealth ? ' is-spinning' : ''}`}
+            onClick={onRetryConnections}
+            disabled={isCheckingHealth}
+            title="연결 상태 새로고침"
+          ><RefreshCw size={16} /></button>
+          <button
             className="app-header-icon-btn"
             onClick={openWiki}
             title="팀 위키"
-          ><BookOpen size={16} /></button>
+          ><span key={wikiIconPlay} className="wiki-icon-anim"><BookOpen size={16} /></span></button>
           <button
             className="app-header-icon-btn"
-            onClick={() => { setIsConfiguring(true); setIsErrorNoteOpen(false); }}
+            onClick={() => { setSettingsIconPlay(k => k + 1); setIsConfiguring(true); setIsErrorNoteOpen(false); }}
             title="Atlassian 연동 설정"
-          ><Settings size={16} /></button>
+          ><span key={settingsIconPlay} className="settings-icon-anim"><Settings size={16} /></span></button>
         </div>
       </div>
 
