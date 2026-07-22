@@ -6,6 +6,8 @@ import type { ModelConfig } from './distillers/types';
 
 // 종합기는 교차검증·상충 판단·최종 구조화를 담당 → 상위 모델 사용.
 export const MODEL_CONFIG: ModelConfig = { model: 'gemini-3.5-flash', temperature: 0.2 };
+// MODEL_CONFIG.model이 존재하지 않거나 일시적으로 실패할 경우의 폴백 모델.
+const FALLBACK_MODEL = 'gemini-2.5-flash';
 
 const SYSTEM_INSTRUCTION = `너는 사내 시스템(Jira/Confluence/Zendesk/Hive) 검색 결과를 종합하는 헤드 에이전트다. 아래는 각 소스별 서브에이전트가 원문에서 정제한 <Source> 블록들이다. 이 블록들만 근거로 최종 답변을 작성해라.
 
@@ -20,6 +22,22 @@ const SYSTEM_INSTRUCTION = `너는 사내 시스템(Jira/Confluence/Zendesk/Hive
  4. 답변 구조: ① 핵심 결론(1~3문장) → ② 상세 근거(소스별로 구분, 표/목록 활용 가능) → ③ 참고 링크 목록.
  5. '[{소스} 검색 실패]' 표기가 있으면 해당 소스는 조회하지 못했음을 답변에 간단히 언급해라.`;
 
+async function runSynthesis(
+  genAI: GoogleGenerativeAI,
+  modelName: string,
+  prompt: string,
+  chatHistory: any[]
+): Promise<string> {
+  const model = genAI.getGenerativeModel({
+    model: modelName,
+    systemInstruction: SYSTEM_INSTRUCTION,
+    generationConfig: { temperature: MODEL_CONFIG.temperature }
+  });
+  const chat = model.startChat({ history: chatHistory });
+  const result = await chat.sendMessage(prompt);
+  return (result.response.text() || '').trim();
+}
+
 export async function synthesize(
   genAI: GoogleGenerativeAI,
   userQuestion: string,
@@ -27,19 +45,16 @@ export async function synthesize(
   wikiContext: string | null,
   chatHistory: any[] = []
 ): Promise<string> {
-  const model = genAI.getGenerativeModel({
-    model: MODEL_CONFIG.model,
-    systemInstruction: SYSTEM_INSTRUCTION,
-    generationConfig: { temperature: MODEL_CONFIG.temperature }
-  });
-
   const contextParts: string[] = [];
   if (wikiContext) contextParts.push(`[팀 위키 우선 참고]\n${wikiContext}`);
   contextParts.push(`[정제된 소스 컨텍스트]\n${sourceBlocks}`);
+  const prompt = `사용자 질문:\n${userQuestion}\n\n${contextParts.join('\n\n')}`;
 
-  const chat = model.startChat({ history: chatHistory });
-  const result = await chat.sendMessage(
-    `사용자 질문:\n${userQuestion}\n\n${contextParts.join('\n\n')}`
-  );
-  return (result.response.text() || '').trim();
+  try {
+    return await runSynthesis(genAI, MODEL_CONFIG.model, prompt, chatHistory);
+  } catch (err: any) {
+    if (MODEL_CONFIG.model === FALLBACK_MODEL) throw err;
+    console.error(`[Synthesizer] ${MODEL_CONFIG.model} 실패, ${FALLBACK_MODEL}로 폴백: ${err.message}`);
+    return runSynthesis(genAI, FALLBACK_MODEL, prompt, chatHistory);
+  }
 }
