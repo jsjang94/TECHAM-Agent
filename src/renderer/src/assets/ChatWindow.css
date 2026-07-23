@@ -139,6 +139,123 @@
 .inline-reset-btn:disabled { color: rgba(255, 255, 255, 0.18); cursor: default; }
 .inline-reset-btn:disabled:hover { background-color: transparent; }
 
+/* 스페이스 설정 라디오 버튼 그룹 — 앱의 다크 톤에 맞춘 커스텀 라디오 */
+.space-scope-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.space-scope-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background-color 0.15s;
+  user-select: none;
+}
+.space-scope-option:hover { background-color: rgba(255, 255, 255, 0.05); }
+
+/* 네이티브 라디오를 시각적으로 숨기고 커스텀 dot으로 대체 */
+.space-scope-option input[type="radio"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 0;
+  height: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  outline: none;
+  cursor: pointer;
+}
+
+.radio-dot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+.space-scope-option input[type="radio"]:checked ~ .radio-dot {
+  background-color: transparent;
+}
+.space-scope-option input[type="radio"]:checked ~ .radio-dot::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  background-color: var(--hive-blue);
+  border-radius: 50%;
+}
+
+/* 키보드 포커스 */
+.space-scope-option input[type="radio"]:focus-visible ~ .radio-dot {
+  outline: 1px solid var(--hive-blue);
+  outline-offset: 2px;
+}
+
+.space-scope-option span {
+  color: #fff;
+  font-size: 12px;
+}
+
+/* 개별 스페이스 검색 선택 시, 입력칸 목록이 보이는 컨테이너 — 좌측으로 들여쓰기(라디오 원 너비 + gap) */
+.space-scope-individual {
+  margin-left: 22px; /* 14px(dot) + 8px(gap) */
+  margin-bottom: 12px;
+}
+
+/* 스페이스 추가 버튼 — 다른 아이콘 버튼들과 일관된 hover 언어 */
+.space-add-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--hive-blue);
+  cursor: pointer;
+  font-size: 12px;
+  transition: background-color 0.15s;
+}
+.space-add-btn:hover {
+  background-color: rgba(var(--hive-blue-rgb), 0.12);
+}
+
+/* 개별 스페이스 입력칸의 삭제 버튼 — 명확한 제거 어포던스 */
+.space-input-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.45);
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+.space-input-remove:hover {
+  background-color: rgba(255, 63, 48, 0.15);
+  color: #ff3f30;
+}
+
+/* Jira/Confluence 블록 구분선 */
+.space-section-divider {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  margin-top: 24px;
+  padding-top: 24px;
+}
+
 /* 위키 초기화 확정 시 필드가 위→아래로 순서대로 지워지는 모습을 보여주는 트랜지션 (지우개 스트로크 은유) */
 .wiki-field { transition: opacity 0.18s ease, transform 0.18s ease; }
 .wiki-field.is-wiping { opacity: 0; transform: translateY(-6px); }

@@ -22,11 +22,25 @@ const safeParse = (key: string, defaultVal: string[]) => {
   catch { return defaultVal; }
 }
 
+const safeParseBool = (key: string) => localStorage.getItem(key) === 'true'
+
+// "모든 스페이스 검색"이 켜져 있으면 지정된 스페이스 목록 대신 빈 배열을 실제 검색 설정으로 사용한다.
+// mcp/tools.ts가 confSpaces/jiraSpaces를 빈 배열로 받으면 스페이스 필터 없이(전체 대상) 검색하도록 이미 되어 있음.
+// config.jiraSpaces/confSpaces 자체는 폼 편집용 원본 목록으로 남겨두고(토글을 꺼도 재입력 불필요),
+// main 프로세스로 넘어가는 경계에서만 이 함수로 유효 검색 범위를 계산한다.
+const withSearchScope = (cfg: any) => ({
+  ...cfg,
+  jiraSpaces: cfg.jiraSearchAll ? [] : cfg.jiraSpaces,
+  confSpaces: cfg.confSearchAll ? [] : cfg.confSpaces,
+})
+
 export default function App() {
   const [isChatOpen, setIsChatOpen] = useState(false)
   const [config, setConfig] = useState({
     confSpaces: safeParse('hive_conf_spaces', ['GCPTAM']),
     jiraSpaces: safeParse('hive_jira_spaces', ['GCPTAM']),
+    confSearchAll: safeParseBool('hive_conf_search_all'),
+    jiraSearchAll: safeParseBool('hive_jira_search_all'),
   })
 
   // "처음 설정으로 되돌리기"가 복귀할 최초 스냅샷.
@@ -39,14 +53,20 @@ export default function App() {
       return {
         confSpaces: safeParse('hive_initial_conf_spaces', ['GCPTAM']),
         jiraSpaces: safeParse('hive_initial_jira_spaces', ['GCPTAM']),
+        confSearchAll: safeParseBool('hive_initial_conf_search_all'),
+        jiraSearchAll: safeParseBool('hive_initial_jira_search_all'),
       }
     }
     const seed = {
       confSpaces: safeParse('hive_conf_spaces', ['GCPTAM']),
       jiraSpaces: safeParse('hive_jira_spaces', ['GCPTAM']),
+      confSearchAll: safeParseBool('hive_conf_search_all'),
+      jiraSearchAll: safeParseBool('hive_jira_search_all'),
     }
     localStorage.setItem('hive_initial_conf_spaces', JSON.stringify(seed.confSpaces))
     localStorage.setItem('hive_initial_jira_spaces', JSON.stringify(seed.jiraSpaces))
+    localStorage.setItem('hive_initial_conf_search_all', String(seed.confSearchAll))
+    localStorage.setItem('hive_initial_jira_search_all', String(seed.jiraSearchAll))
     return seed
   })
 
@@ -190,13 +210,17 @@ export default function App() {
   const saveConfigAndConnect = async (newConfig: any) => {
     const confSpaces = newConfig.confSpaces.map((s: string) => s.trim()).filter((s: string) => s.length > 0)
     const jiraSpaces = newConfig.jiraSpaces.map((s: string) => s.trim()).filter((s: string) => s.length > 0)
-    if (confSpaces.length === 0 || jiraSpaces.length === 0) {
-      showAlert('⚠️', '스페이스 키를 하나 이상 입력해주세요.')
+    const confSearchAll = !!newConfig.confSearchAll
+    const jiraSearchAll = !!newConfig.jiraSearchAll
+    if ((!confSearchAll && confSpaces.length === 0) || (!jiraSearchAll && jiraSpaces.length === 0)) {
+      showAlert('⚠️', '스페이스 키를 하나 이상 입력하거나, 모든 스페이스 검색을 켜주세요.')
       return
     }
-    setConfig(prev => ({ ...prev, confSpaces, jiraSpaces }))
+    setConfig(prev => ({ ...prev, confSpaces, jiraSpaces, confSearchAll, jiraSearchAll }))
     localStorage.setItem('hive_conf_spaces', JSON.stringify(confSpaces))
     localStorage.setItem('hive_jira_spaces', JSON.stringify(jiraSpaces))
+    localStorage.setItem('hive_conf_search_all', String(confSearchAll))
+    localStorage.setItem('hive_jira_search_all', String(jiraSearchAll))
     setHasSavedSpaces(true)
     setIsConfiguring(false)
     setIsErrorNoteOpen(false)
@@ -225,7 +249,7 @@ export default function App() {
       let finalMessageForAI = userMsg;
 
       if (electron?.ipcRenderer) {
-        const errorNoteRule = await electron.ipcRenderer.invoke('search-error-note', config, userMsg);
+        const errorNoteRule = await electron.ipcRenderer.invoke('search-error-note', withSearchScope(config), userMsg);
         if (errorNoteRule) {
           finalMessageForAI = `${errorNoteRule}\n\n사용자 질문: ${userMsg}`;
           setMessages(prev => [...prev, { text: `💡 (관련된 내용을 발견하여 문맥을 분석합니다)`, isBot: true, isSystem: true }]);
@@ -244,7 +268,7 @@ export default function App() {
           }));
         if (pureHistory.length > 0 && pureHistory[0].role === 'model') pureHistory.shift();
 
-        const response = await electron.ipcRenderer.invoke('chat-with-agent', config, finalMessageForAI, pureHistory);
+        const response = await electron.ipcRenderer.invoke('chat-with-agent', withSearchScope(config), finalMessageForAI, pureHistory);
         if (response.success) setMessages(prev => [...prev, { text: response.text, isBot: true, isSystem: false }]);
         else setMessages(prev => [...prev, { text: `❌ 시스템 에러: ${response.error}`, isBot: true, isSystem: true }]);
       }

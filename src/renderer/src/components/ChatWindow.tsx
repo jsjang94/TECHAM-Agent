@@ -1,6 +1,6 @@
 // src/components/ChatWindow.tsx
 import React, { useState, useRef, useEffect } from 'react'
-import { Settings, BookOpen, Send, Circle, X, Minus, Maximize2, Minimize2, Eraser, RotateCcw, RefreshCw } from 'lucide-react'
+import { Settings, BookOpen, Send, Circle, X, Minus, Maximize2, Minimize2, Eraser, RotateCcw, RefreshCw, Plus } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
@@ -171,7 +171,9 @@ export default function ChatWindow({
 
   const isFormAtInitial =
     JSON.stringify(form.jiraSpaces) === JSON.stringify(initialConfig.jiraSpaces) &&
-    JSON.stringify(form.confSpaces) === JSON.stringify(initialConfig.confSpaces)
+    JSON.stringify(form.confSpaces) === JSON.stringify(initialConfig.confSpaces) &&
+    !!form.jiraSearchAll === !!initialConfig.jiraSearchAll &&
+    !!form.confSearchAll === !!initialConfig.confSearchAll
 
   const handleConfigRevertClick = (): void => {
     if (!isConfigRevertArmed) {
@@ -203,6 +205,8 @@ export default function ChatWindow({
   const removeArrayItem = (type: 'confSpaces' | 'jiraSpaces', idx: number) => {
     const newArr = form[type].filter((_: string, i: number) => i !== idx); setForm({ ...form, [type]: newArr });
   }
+  // 라디오 버튼: 특정 스페이스 지정 / 전체 검색을 명시적으로 선택하게 한다. 목록은 지우지 않고 그대로 남겨(꺼도 재입력 불필요) 화면만 전환.
+  const setSearchScope = (type: 'confSearchAll' | 'jiraSearchAll', value: boolean) => { setForm({ ...form, [type]: value }); }
 
   return (
     <div className="chat-container" style={{ borderRadius: isChatMaximized ? 0 : undefined, transition: 'border-radius 0.25s ease' }}>
@@ -289,23 +293,77 @@ export default function ChatWindow({
               </div>
 
               <div className={`config-fields${isConfigReverting ? ' is-reverting' : ''}`} style={{ flex: 1, overflowY: 'auto', paddingRight: '10px' }}>
-                <p style={{ color: '#fff', fontSize: '12px', marginBottom: '4px' }}>1. Jira 타겟 스페이스</p>
-                {form.jiraSpaces.map((space: string, idx: number) => ( 
-                  <div key={idx} style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
-                    <input value={space} onChange={e => handleArrayChange('jiraSpaces', idx, e.target.value)} style={{ ...inputStyle, marginBottom: 0 }} />
-                    {form.jiraSpaces.length > 1 && <button onClick={() => removeArrayItem('jiraSpaces', idx)} style={{ background:'none', border:'none', color:'#fff', cursor:'pointer' }}>✕</button>}
-                  </div> 
-                ))} 
-                <button onClick={() => addArrayItem('jiraSpaces')} style={{ background:'none', border:'none', color:'var(--hive-blue)', cursor:'pointer', fontSize: '12px' }}>+ 추가</button>
+                <p style={{ color: '#fff', fontSize: '12px', marginBottom: '10px', fontWeight: 600 }}>1. Jira 타겟 스페이스</p>
+                <div className="space-scope-group">
+                  <label className="space-scope-option">
+                    <input
+                      type="radio"
+                      name="jiraScope"
+                      checked={form.jiraSearchAll}
+                      onChange={() => setSearchScope('jiraSearchAll', true)}
+                    />
+                    <span className="radio-dot"></span>
+                    <span>모든 스페이스 검색</span>
+                  </label>
+                  <label className="space-scope-option">
+                    <input
+                      type="radio"
+                      name="jiraScope"
+                      checked={!form.jiraSearchAll}
+                      onChange={() => setSearchScope('jiraSearchAll', false)}
+                    />
+                    <span className="radio-dot"></span>
+                    <span>개별 스페이스 검색</span>
+                  </label>
+                </div>
+                {!form.jiraSearchAll && (
+                  <div className="space-scope-individual">
+                    {form.jiraSpaces.map((space: string, idx: number) => (
+                      <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                        <input value={space} onChange={e => handleArrayChange('jiraSpaces', idx, e.target.value)} style={{ ...inputStyle, marginBottom: 0, maxWidth: '220px' }} />
+                        {form.jiraSpaces.length > 1 && <button className="space-input-remove" onClick={() => removeArrayItem('jiraSpaces', idx)} title="삭제"><X size={12} /></button>}
+                      </div>
+                    ))}
+                    <button className="space-add-btn" onClick={() => addArrayItem('jiraSpaces')}><Plus size={12} /> 추가</button>
+                  </div>
+                )}
 
-                <p style={{ color: '#fff', fontSize: '12px', marginBottom: '4px', marginTop: '16px' }}>2. Confluence 타겟 스페이스</p>
-                {form.confSpaces.map((space: string, idx: number) => ( 
-                  <div key={idx} style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
-                    <input value={space} onChange={e => handleArrayChange('confSpaces', idx, e.target.value)} style={{ ...inputStyle, marginBottom: 0 }} />
-                    {form.confSpaces.length > 1 && <button onClick={() => removeArrayItem('confSpaces', idx)} style={{ background:'none', border:'none', color:'#fff', cursor:'pointer' }}>✕</button>}
-                  </div> 
-                ))} 
-                <button onClick={() => addArrayItem('confSpaces')} style={{ background:'none', border:'none', color:'var(--hive-blue)', cursor:'pointer', fontSize: '12px' }}>+ 추가</button>
+                <div className="space-section-divider">
+                  <p style={{ color: '#fff', fontSize: '12px', marginBottom: '10px', fontWeight: 600 }}>2. Confluence 타겟 스페이스</p>
+                <div className="space-scope-group">
+                  <label className="space-scope-option">
+                    <input
+                      type="radio"
+                      name="confScope"
+                      checked={form.confSearchAll}
+                      onChange={() => setSearchScope('confSearchAll', true)}
+                    />
+                    <span className="radio-dot"></span>
+                    <span>모든 스페이스 검색</span>
+                  </label>
+                  <label className="space-scope-option">
+                    <input
+                      type="radio"
+                      name="confScope"
+                      checked={!form.confSearchAll}
+                      onChange={() => setSearchScope('confSearchAll', false)}
+                    />
+                    <span className="radio-dot"></span>
+                    <span>개별 스페이스 검색</span>
+                  </label>
+                </div>
+                {!form.confSearchAll && (
+                  <div className="space-scope-individual">
+                    {form.confSpaces.map((space: string, idx: number) => (
+                      <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                        <input value={space} onChange={e => handleArrayChange('confSpaces', idx, e.target.value)} style={{ ...inputStyle, marginBottom: 0, maxWidth: '220px' }} />
+                        {form.confSpaces.length > 1 && <button className="space-input-remove" onClick={() => removeArrayItem('confSpaces', idx)} title="삭제"><X size={12} /></button>}
+                      </div>
+                    ))}
+                    <button className="space-add-btn" onClick={() => addArrayItem('confSpaces')}><Plus size={12} /> 추가</button>
+                  </div>
+                )}
+                </div>
               </div>
               
               <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginTop: '20px', flexShrink: 0 }}>
