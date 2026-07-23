@@ -343,12 +343,12 @@ export default function ChatWindow({
 
                 <p style={{ color: '#fff', fontSize: '12px', marginBottom: '4px' }}>2. 질문(키워드)</p>
                 <div className={`wiki-field${isWikiWiping ? ' is-wiping' : ''}`} style={{ display: 'flex', gap: '8px', marginBottom: '10px', transitionDelay: isWikiWiping ? '60ms' : undefined }}>
-                  <textarea value={errorNoteForm.question} onChange={e => setErrorNoteForm({...errorNoteForm, question: e.target.value})} style={{ ...inputStyle, marginBottom: 0, height: '60px', resize: 'vertical' }} />
+                  <textarea value={errorNoteForm.question} onChange={e => setErrorNoteForm({...errorNoteForm, question: e.target.value})} style={{ ...inputStyle, marginBottom: 0, height: '40px', resize: 'vertical' }} />
                 </div>
 
                 <p style={{ color: '#fff', fontSize: '12px', marginBottom: '4px' }}>3. 올바른 답변</p>
                 <div className={`wiki-field${isWikiWiping ? ' is-wiping' : ''}`} style={{ display: 'flex', gap: '8px', marginBottom: '10px', flex: 1, transitionDelay: isWikiWiping ? '120ms' : undefined }}>
-                  <textarea value={errorNoteForm.answer} onChange={e => setErrorNoteForm({...errorNoteForm, answer: e.target.value})} style={{ ...inputStyle, marginBottom: 0, flex: 1, minHeight: '80px', resize: 'vertical' }} />
+                  <textarea value={errorNoteForm.answer} onChange={e => setErrorNoteForm({...errorNoteForm, answer: e.target.value})} style={{ ...inputStyle, marginBottom: 0, flex: 1, height: '40px', resize: 'vertical' }} />
                 </div>
 
                 <p style={{ color: '#fff', fontSize: '12px', marginBottom: '4px' }}>4. 참고 링크 (선택)</p>
