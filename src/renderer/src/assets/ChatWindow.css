@@ -100,14 +100,13 @@
 .app-header-icon-btn:disabled:hover { background-color: transparent; }
 .app-header-icon-btn.is-spinning svg { animation: spin 0.8s linear infinite; }
 
-/* 위키 아이콘 클릭 시 표지가 열리듯 한 번 젖혀졌다 안착 (책등을 축으로 회전+폭 압축/과회복) */
+/* 위키 아이콘 클릭 시 책등(중심축)을 기준으로 접혀있던 폭이 펼쳐지는 unfold — 회전 없이 폭·불투명도·미세한 들림만 사용해 설정 아이콘의 회전 스냅과 완전히 다른 인상을 줌 */
 @keyframes bookOpen {
-  0%   { transform: rotate(0deg) scaleX(1); }
-  35%  { transform: rotate(-10deg) scaleX(0.88); }
-  70%  { transform: rotate(5deg) scaleX(1.06); }
-  100% { transform: rotate(0deg) scaleX(1); }
+  0%   { transform: scaleX(0.4) translateY(1px); opacity: 0.55; }
+  60%  { transform: scaleX(1.1) translateY(-1px); opacity: 1; }
+  100% { transform: scaleX(1) translateY(0); opacity: 1; }
 }
-.wiki-icon-anim { display: inline-flex; transform-origin: 50% 50%; animation: bookOpen 0.42s ease-out; }
+.wiki-icon-anim { display: inline-flex; transform-origin: 50% 50%; animation: bookOpen 0.38s cubic-bezier(0.22, 1, 0.36, 1); }
 
 /* 설정 아이콘 클릭 시 톱니가 한 칸 돌아갔다 제자리로 스냅되는 느낌 (라쳇 클릭) */
 @keyframes gearAdjust {
