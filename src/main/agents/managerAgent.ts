@@ -52,7 +52,8 @@ async function retrieve(source: SourceId, keywords: string[], config: any): Prom
   if (source === 'zendesk') return executeMcpTool('search_zendesk', { keywords }, config);
   if (source === 'hive') {
     // Hive는 2단계: URL 탐색 → 최상위 URL 본문 스크래핑
-    const query = keywords.join(' ');
+    // 동의어 그룹('A|B')은 '|'를 공백으로 풀어 검색어에 한/영 동의어를 모두 포함(DuckDuckGo 느슨 매칭).
+    const query = keywords.map((k) => k.replace(/\|/g, ' ')).join(' ');
     const searchResult = await executeMcpTool('search_hive_docs', { query }, config);
     const urlMatch = searchResult.match(/\[URL\]:\s*(\S+)/);
     if (!urlMatch) return searchResult; // URL을 못 찾으면 검색 결과 텍스트를 그대로 전달

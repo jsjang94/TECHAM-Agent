@@ -63,6 +63,17 @@ export const extractTextFromJira = (content: any): string => {
   return text.trim();
 };
 
+// text ~ 절 빌더. "A|B" 동의어 그룹은 (text ~ "A" OR text ~ "B")로 묶어 개념 내 OR·개념 간 AND를 만든다.
+export const buildTextClauses = (keywords: string[]): string[] =>
+  keywords.map((k) => {
+    const terms = k.split('|').map((t) => t.trim().replace(/"/g, '')).filter(Boolean);
+    const clauses = terms.map((t) => `text ~ "${t}"`);
+    return clauses.length > 1 ? `(${clauses.join(' OR ')})` : clauses[0];
+  });
+
+// '[안내: ...]' 표기용: 동의어 구분자 '|'를 '/'로 바꿔 사람이 읽기 좋게.
+const prettyKeywords = (keywords: string[]): string => keywords.map((k) => k.replace(/\|/g, '/')).join(', ');
+
 // 도구 명세서 (유지)
 export const workerToolDeclarations: FunctionDeclaration[] = [
   {
@@ -142,7 +153,7 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
     if (name === 'search_jira') {
       const projects = config.jiraSpaces?.length > 0 ? `project in (${config.jiraSpaces.join(', ')}) AND ` : '';
       if (!args.keywords || args.keywords.length === 0) return "검색 키워드가 없습니다.";
-      const keywordClauses = args.keywords.map((k: string) => `text ~ "${k.replace(/"/g, '')}"`);
+      const keywordClauses = buildTextClauses(args.keywords);
 
       // 🌟 공통 헬퍼 함수로 토큰 호출 단일화
       const { authHeader, baseUrl } = getAtlassianAuth();
@@ -159,7 +170,7 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
           },
           body: JSON.stringify({
             jql,
-            maxResults: 8,
+            maxResults: 25,
             fields: ["summary", "status", "description", "comment"]
           })
         });
@@ -180,18 +191,30 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
       if (issues.length === 0 && keywordClauses.length > 1) {
         issues = await runJiraSearch(`${projects}(${keywordClauses.join(' OR ')}) ORDER BY updated DESC`);
         if (typeof issues === 'string') return issues;
-        fallbackNote = `[안내: 모든 키워드(${args.keywords.join(', ')})가 동시에 포함된 이슈는 없어, 일부 키워드만 일치하는 연관 이슈를 반환합니다. 질문과의 연관성을 직접 판단해서 활용하세요.]\n\n`;
+        fallbackNote = `[안내: 모든 키워드(${prettyKeywords(args.keywords)})가 동시에 포함된 이슈는 없어, 일부 키워드만 일치하는 연관 이슈를 반환합니다. 질문과의 연관성을 직접 판단해서 활용하세요.]\n\n`;
       }
-      if (issues.length === 0) return `해당 키워드 조합(${args.keywords.join(', ')})으로 검색된 Jira 이슈가 없습니다.`;
+      if (issues.length === 0) return `해당 키워드 조합(${prettyKeywords(args.keywords)})으로 검색된 Jira 이슈가 없습니다.`;
+
+      // JQL엔 텍스트 스코어 정렬이 없어 클라이언트에서 관련도 재랭킹(제목 매칭 ×3 > 본문 ×1).
+      // Array.sort는 stable → 동점은 JQL의 updated DESC 순서 유지. OR 폴백 시 특히 효과적.
+      const scoreTerms = args.keywords.flatMap((k: string) => k.split('|')).map((t: string) => t.trim().toLowerCase()).filter(Boolean);
+      const scoreIssue = (i: any): number => {
+        const summary = (i.fields?.summary || '').toLowerCase();
+        const body = extractTextFromJira(i.fields?.description).toLowerCase();
+        let s = 0;
+        for (const t of scoreTerms) { if (summary.includes(t)) s += 3; else if (body.includes(t)) s += 1; }
+        return s;
+      };
+      issues = [...issues].sort((a: any, b: any) => scoreIssue(b) - scoreIssue(a)).slice(0, 10);
 
       return fallbackNote + issues.map((i: any) => {
         let desc = extractTextFromJira(i.fields?.description);
         let commentsText = '';
         if (i.fields?.comment?.comments) {
-            commentsText = i.fields.comment.comments.slice(-3).map((c: any) => `- ${extractTextFromJira(c.body).substring(0, 500)}`).join('\n');
+            commentsText = i.fields.comment.comments.slice(-5).map((c: any) => `- ${extractTextFromJira(c.body).substring(0, 500)}`).join('\n');
         }
         const issueLink = `${baseUrl}/browse/${i.key}`;
-        return `[일감]: ${i.key}\n[링크]: ${issueLink}\n[제목]: ${i.fields?.summary} (${i.fields?.status?.name})\n[본문]: ${desc.substring(0, 2000)}\n[댓글]:\n${commentsText || '없음'}`;
+        return `[일감]: ${i.key}\n[링크]: ${issueLink}\n[제목]: ${i.fields?.summary} (${i.fields?.status?.name})\n[본문]: ${desc.substring(0, 4000)}\n[댓글]:\n${commentsText || '없음'}`;
       }).join('\n\n--------------------\n\n');
     }
 
@@ -201,7 +224,7 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
     if (name === 'search_confluence') {
       const spaces = config.confSpaces?.length > 0 ? `space in (${config.confSpaces.map((s: string) => `"${s}"`).join(', ')}) AND ` : '';
       if (!args.keywords || args.keywords.length === 0) return "검색 키워드가 없습니다.";
-      const keywordClauses = args.keywords.map((k: string) => `text ~ "${k.replace(/"/g, '')}"`);
+      const keywordClauses = buildTextClauses(args.keywords);
 
       // 🌟 공통 헬퍼 함수 재사용 (중복 코드 제거)
       const { authHeader, baseUrl } = getAtlassianAuth();
@@ -209,7 +232,7 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
       // order by를 지정하지 않아 CQL 기본 정렬(관련도 relevance)을 사용 → 최신순보다 질문 연관 문서가 상위로
       const runConfSearch = async (cql: string): Promise<any[] | string> => {
         console.log(`[Confluence Search] CQL: ${cql}`);
-        const res = await nodeHttpsFetch(`${baseUrl}/wiki/rest/api/content/search?cql=${encodeURIComponent(cql)}&limit=8&expand=body.plain`, {
+        const res = await nodeHttpsFetch(`${baseUrl}/wiki/rest/api/content/search?cql=${encodeURIComponent(cql)}&limit=12&expand=body.plain`, {
           method: 'GET',
           headers: {
             'Authorization': authHeader,
@@ -233,13 +256,13 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
       if (results.length === 0 && keywordClauses.length > 1) {
         results = await runConfSearch(`${spaces}(${keywordClauses.join(' OR ')})`);
         if (typeof results === 'string') return results;
-        fallbackNote = `[안내: 모든 키워드(${args.keywords.join(', ')})가 동시에 포함된 문서는 없어, 일부 키워드만 일치하는 연관 문서를 반환합니다. 질문과의 연관성을 직접 판단해서 활용하세요.]\n\n`;
+        fallbackNote = `[안내: 모든 키워드(${prettyKeywords(args.keywords)})가 동시에 포함된 문서는 없어, 일부 키워드만 일치하는 연관 문서를 반환합니다. 질문과의 연관성을 직접 판단해서 활용하세요.]\n\n`;
       }
       if (results.length === 0) return `검색된 Confluence 문서가 없습니다.`;
 
       return fallbackNote + results.map((r: any) => {
         const contentLink = `${baseUrl}/wiki${r._links?.webui || ''}`;
-        return `[문서 제목]: ${r.title}\n[링크]: ${contentLink}\n[본문 내용]: ${(r.body?.plain?.value || '').substring(0, 3000)}`;
+        return `[문서 제목]: ${r.title}\n[링크]: ${contentLink}\n[본문 내용]: ${(r.body?.plain?.value || '').substring(0, 6000)}`;
       }).join('\n\n--------------------\n\n');
     }
 
@@ -248,7 +271,8 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
     // =========================================================================
     if (name === 'search_zendesk') {
       if (!args.keywords || args.keywords.length === 0) return "검색 키워드가 없습니다.";
-      const quoted = args.keywords.map((k: string) => `"${k.replace(/"/g, '')}"`);
+      // Zendesk 검색 문법은 괄호 OR을 깔끔히 지원하지 않으므로 각 개념의 첫 term만 사용(동의어는 무해하게 생략).
+      const quoted = args.keywords.map((k: string) => `"${k.split('|')[0].trim().replace(/"/g, '')}"`);
 
       const { authHeader, baseUrl } = getZendeskAuth();
 
@@ -270,11 +294,11 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
       if (found.length === 0 && quoted.length > 1) {
         found = await runZendeskSearch(quoted[0]);
         if (typeof found === 'string') return found;
-        fallbackNote = `[안내: 모든 키워드(${args.keywords.join(', ')})가 동시에 포함된 티켓은 없어, 핵심 키워드("${args.keywords[0]}")만으로 검색한 연관 티켓을 반환합니다. 질문과의 연관성을 직접 판단해서 활용하세요.]\n\n`;
+        fallbackNote = `[안내: 모든 키워드(${prettyKeywords(args.keywords)})가 동시에 포함된 티켓은 없어, 핵심 키워드("${args.keywords[0].split('|')[0].trim()}")만으로 검색한 연관 티켓을 반환합니다. 질문과의 연관성을 직접 판단해서 활용하세요.]\n\n`;
       }
       if (found.length === 0) return `검색된 Zendesk 티켓이 없습니다.`;
 
-      const topTickets = found.slice(0, 8);
+      const topTickets = found.slice(0, 10);
       const ticketDetails = await Promise.all(topTickets.map(async (t: any) => {
         const ticketLink = `${baseUrl}/agent/tickets/${t.id}`;
         try {
@@ -283,12 +307,12 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
             headers: { 'Authorization': authHeader, 'Accept': 'application/json' }
           });
           const commentData = await commentRes.json();
-          let conversation = `[최초 문의]: ${t.description?.substring(0, 300)}...`;
-          if (commentData.comments?.length > 1) conversation += `\n[팀원 답변]: ${stripHtml(commentData.comments[commentData.comments.length - 1].body).substring(0, 600)}...`;
+          let conversation = `[최초 문의]: ${t.description?.substring(0, 600)}...`;
+          if (commentData.comments?.length > 1) conversation += `\n[팀원 답변]: ${stripHtml(commentData.comments[commentData.comments.length - 1].body).substring(0, 1200)}...`;
 
           return `[티켓 #${t.id}] ${t.subject}\n[링크]: ${ticketLink}\n${conversation}`;
         } catch (err) {
-          return `[티켓 #${t.id}] ${t.subject}\n[링크]: ${ticketLink}\n[최초 문의]: ${t.description?.substring(0, 500)}...`;
+          return `[티켓 #${t.id}] ${t.subject}\n[링크]: ${ticketLink}\n[최초 문의]: ${t.description?.substring(0, 800)}...`;
         }
       }));
       return fallbackNote + ticketDetails.join('\n\n--------------------\n\n');
