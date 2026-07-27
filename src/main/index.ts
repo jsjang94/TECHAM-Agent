@@ -98,10 +98,17 @@ app.whenReady().then(() => {
   // 자격증명 설정 여부만 반환 (렌더러 게이트용) — 실제 키 값은 절대 노출하지 않음
   ipcMain.handle('has-credentials', async () => hasCredentials());
 
-  // 🌟 [기존 코드 유지] 멀티 에이전트 통신 파이프라인
-  ipcMain.handle('chat-with-agent', async (_, config, userMessage, chatHistory) => {
+  // 🌟 멀티 에이전트 통신 파이프라인. 멀티홉은 오래 걸려(15~30초+) 단계 진행 상황을
+  // 'agent-progress' 이벤트로 렌더러에 스트리밍한다(반환값 계약은 그대로 유지).
+  ipcMain.handle('chat-with-agent', async (event, config, userMessage, chatHistory) => {
     try {
-      const reply = await processUserMessage(userMessage, chatHistory, config);
+      const reply = await processUserMessage(userMessage, chatHistory, config, (p) => {
+        try {
+          event.sender.send('agent-progress', p);
+        } catch {
+          /* 렌더러가 사라졌거나 전송 실패 → 무시 */
+        }
+      });
       return { success: true, text: reply };
     } catch (e: any) {
       return { success: false, error: e.message };

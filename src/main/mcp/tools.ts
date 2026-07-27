@@ -74,6 +74,44 @@ export const buildTextClauses = (keywords: string[]): string[] =>
 // '[안내: ...]' 표기용: 동의어 구분자 '|'를 '/'로 바꿔 사람이 읽기 좋게.
 const prettyKeywords = (keywords: string[]): string => keywords.map((k) => k.replace(/\|/g, '/')).join(', ');
 
+// 게임 개발 프로젝트/스페이스 식별 휴리스틱(목록 유지 불필요). 우리 팀 것은 키에 'GCP'가 포함된다는 관례.
+// '모든 스페이스' 검색 시 GCP 미포함 항목(게임 개발로 추정)을 랭킹 후순위로 미루는 데 쓴다. 순수 함수.
+export const containsGcp = (key: string): boolean => (key || '').toUpperCase().includes('GCP');
+// Jira 일감 키에서 프로젝트 접두 추출 (예: 'GCPTAM-3050' → 'GCPTAM').
+export const jiraProjectOf = (issueKey: string): string => (issueKey || '').split('-')[0];
+// JQL/CQL에 날짜를 끼워넣기 전 형식 검증(주입 방지). YYYY-MM-DD만 허용. 순수 함수.
+export const isYmd = (s: string): boolean => /^\d{4}-\d{2}-\d{2}$/.test(s || '');
+// ISO 날짜/시각 문자열의 날짜부(YYYY-MM-DD)가 [from,to] 범위에 드는지(문자열 비교). 순수 함수.
+export const dayInRange = (isoLike: string, from: string, to: string): boolean => {
+  const d = (isoLike || '').slice(0, 10);
+  return isYmd(d) && d >= from && d <= to;
+};
+
+// 여러 쿼리 결과를 합칠 때 사용하는 블록 구분자 (각 검색 함수의 join과 동일).
+export const RESULT_SEPARATOR = '\n\n--------------------\n\n';
+
+// 여러 쿼리에서 같은 결과 블록([일감]/[문서 제목]/[티켓 #]/URL 첫 줄이 동일)이 중복 반환되면 하나로 병합한다.
+// '[안내:...]' 폴백 표기는 있으면 맨 앞에 한 번만 보존한다. 순수 함수(노드 스크립트 검증 가능).
+export const dedupResultBlocks = (combined: string): string => {
+  if (!combined) return combined;
+  const noteMatch = combined.match(/\[안내:[^\]]*\]/);
+  const note = noteMatch ? noteMatch[0] : '';
+  const seen = new Set<string>();
+  const kept: string[] = [];
+  for (const rawBlock of combined.split(RESULT_SEPARATOR)) {
+    // 블록 앞에 붙은 '[안내:...]' 프리픽스를 떼어낸 뒤 식별한다.
+    const block = rawBlock.replace(/^\s*\[안내:[^\]]*\]\s*/, '').trim();
+    if (!block) continue;
+    const idLine = block.split('\n')[0].trim();
+    if (seen.has(idLine)) continue;
+    seen.add(idLine);
+    kept.push(block);
+  }
+  const body = kept.join(RESULT_SEPARATOR);
+  if (!body) return note; // 실제 블록이 없으면 표기만(또는 빈 문자열) 반환
+  return note ? `${note}\n\n${body}` : body;
+};
+
 // 도구 명세서 (유지)
 export const workerToolDeclarations: FunctionDeclaration[] = [
   {
@@ -151,9 +189,20 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
     // 📖 1. Jira 검색 (사내망 직결 + 공통 인증 헬퍼 사용)
     // =========================================================================
     if (name === 'search_jira') {
-      const projects = config.jiraSpaces?.length > 0 ? `project in (${config.jiraSpaces.join(', ')}) AND ` : '';
       if (!args.keywords || args.keywords.length === 0) return "검색 키워드가 없습니다.";
-      const keywordClauses = buildTextClauses(args.keywords);
+      const projects = config.jiraSpaces?.length > 0 ? `project in (${config.jiraSpaces.join(', ')}) AND ` : '';
+      // 'jiraSpaces'가 비어있음 = 렌더러가 '모든 스페이스' 옵션을 켠 상태(App.tsx withSearchScope).
+      // 이때만 게임(비-GCP) 프로젝트를 랭킹 후순위로 미룬다. 개별 스페이스 지정 시엔 사용자 범위를 존중.
+      const isAllSpaces = !(config.jiraSpaces?.length > 0);
+
+      // 기간 필터(선택). 플래너가 질문에서 뽑은 dateRange. from/to가 둘 다 YYYY-MM-DD일 때만 사용(주입 방지).
+      const dateRange = args.dateRange && isYmd(args.dateRange.from) && isYmd(args.dateRange.to) ? args.dateRange : null;
+
+      // 리서처가 발견한 이슈 키(예: GCPTAM-3050)는 퍼지 텍스트 검색이 아니라 정확 조회로 처리한다.
+      // jiraSpaces 제한은 정확 조회에도 그대로 적용(설정 경계 우회 금지 — 사용자 승인 사항).
+      const ISSUE_KEY_RE = /^[A-Z][A-Z0-9]{1,9}-\d+$/i;
+      const keyTerms = args.keywords.filter((k: string) => ISSUE_KEY_RE.test(k.trim())).map((k: string) => k.trim().toUpperCase());
+      const textTerms = args.keywords.filter((k: string) => !ISSUE_KEY_RE.test(k.trim()));
 
       // 🌟 공통 헬퍼 함수로 토큰 호출 단일화
       const { authHeader, baseUrl } = getAtlassianAuth();
@@ -171,7 +220,7 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
           body: JSON.stringify({
             jql,
             maxResults: 25,
-            fields: ["summary", "status", "description", "comment"]
+            fields: ["summary", "status", "description", "comment", "created", "updated"]
           })
         });
         console.log(`[Jira Search] 응답 상태: ${res.status}`);
@@ -184,28 +233,78 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
         return data.issues || [];
       };
 
-      // 1차: 모든 키워드 AND (정확 일치) → 0건이면 2차: OR (연관 검색) 폴백으로 재현율 확보
-      let issues = await runJiraSearch(`${projects}(${keywordClauses.join(' AND ')}) ORDER BY updated DESC`);
-      if (typeof issues === 'string') return issues;
-      let fallbackNote = '';
-      if (issues.length === 0 && keywordClauses.length > 1) {
-        issues = await runJiraSearch(`${projects}(${keywordClauses.join(' OR ')}) ORDER BY updated DESC`);
-        if (typeof issues === 'string') return issues;
-        fallbackNote = `[안내: 모든 키워드(${prettyKeywords(args.keywords)})가 동시에 포함된 이슈는 없어, 일부 키워드만 일치하는 연관 이슈를 반환합니다. 질문과의 연관성을 직접 판단해서 활용하세요.]\n\n`;
+      // 정확 조회: 발견된 이슈 키가 있으면 project 스코프를 존중하며 key in (...)으로 바로 fetch.
+      let keyIssues: any[] = [];
+      if (keyTerms.length > 0) {
+        const keyResult = await runJiraSearch(`${projects}key in (${keyTerms.join(', ')})`);
+        if (typeof keyResult === 'string') return keyResult;
+        keyIssues = keyResult;
       }
-      if (issues.length === 0) return `해당 키워드 조합(${prettyKeywords(args.keywords)})으로 검색된 Jira 이슈가 없습니다.`;
 
-      // JQL엔 텍스트 스코어 정렬이 없어 클라이언트에서 관련도 재랭킹(제목 매칭 ×3 > 본문 ×1).
+      // 퍼지 텍스트 검색: 키가 아닌 나머지 키워드만 대상으로 기존 AND→OR 폴백 로직 유지.
+      let textIssues: any[] = [];
+      let fallbackNote = '';
+      if (textTerms.length > 0) {
+        const keywordClauses = buildTextClauses(textTerms);
+        // 1차: 모든 키워드 AND (정확 일치) → 0건이면 2차: OR (연관 검색) 폴백으로 재현율 확보
+        let issues = await runJiraSearch(`${projects}(${keywordClauses.join(' AND ')}) ORDER BY updated DESC`);
+        if (typeof issues === 'string') return issues;
+        if (issues.length === 0 && keywordClauses.length > 1) {
+          issues = await runJiraSearch(`${projects}(${keywordClauses.join(' OR ')}) ORDER BY updated DESC`);
+          if (typeof issues === 'string') return issues;
+          fallbackNote = `[안내: 모든 키워드(${prettyKeywords(textTerms)})가 동시에 포함된 이슈는 없어, 일부 키워드만 일치하는 연관 이슈를 반환합니다. 질문과의 연관성을 직접 판단해서 활용하세요.]\n\n`;
+        }
+        textIssues = issues;
+
+        // 기간 확장(선택): 하드 필터로 좁히는 게 아니라, 그 기간에 수정된 관련 이슈를 '추가로' 더 끌어와 재현율을 높인다.
+        // 키워드 OR + updated 범위로 별도 조회 후 병합·dedup. 질문에 기간이 있을 때만.
+        if (dateRange) {
+          const rangeIssues = await runJiraSearch(
+            `${projects}(${keywordClauses.join(' OR ')}) AND updated >= "${dateRange.from}" AND updated <= "${dateRange.to}" ORDER BY updated DESC`
+          );
+          if (typeof rangeIssues !== 'string') {
+            const seen = new Set(textIssues.map((i: any) => i.key));
+            textIssues = [...textIssues, ...rangeIssues.filter((i: any) => !seen.has(i.key))];
+          }
+        }
+      }
+
+      if (keyIssues.length === 0 && textIssues.length === 0) {
+        return textTerms.length === 0
+          ? `이슈 키(${keyTerms.join(', ')})에 해당하는 Jira 이슈를 찾을 수 없습니다.`
+          : `해당 키워드 조합(${prettyKeywords(args.keywords)})으로 검색된 Jira 이슈가 없습니다.`;
+      }
+
+      // JQL엔 텍스트 스코어 정렬이 없어 클라이언트에서 관련도 재랭킹(제목×3 + 댓글×2 + 본문×1, 필드별 독립 가산).
+      // 댓글에 진행 상황·CS 대응 이력이 담기는 경우가 많아 제목/본문과 별도로 채점한다.
       // Array.sort는 stable → 동점은 JQL의 updated DESC 순서 유지. OR 폴백 시 특히 효과적.
-      const scoreTerms = args.keywords.flatMap((k: string) => k.split('|')).map((t: string) => t.trim().toLowerCase()).filter(Boolean);
+      const scoreTerms = textTerms.flatMap((k: string) => k.split('|')).map((t: string) => t.trim().toLowerCase()).filter(Boolean);
       const scoreIssue = (i: any): number => {
         const summary = (i.fields?.summary || '').toLowerCase();
         const body = extractTextFromJira(i.fields?.description).toLowerCase();
+        const comments = (i.fields?.comment?.comments || []).map((c: any) => extractTextFromJira(c.body)).join(' ').toLowerCase();
         let s = 0;
-        for (const t of scoreTerms) { if (summary.includes(t)) s += 3; else if (body.includes(t)) s += 1; }
+        for (const t of scoreTerms) {
+          if (summary.includes(t)) s += 3;
+          if (body.includes(t)) s += 1;
+          if (comments.includes(t)) s += 2;
+        }
+        // 기간 가점: 질문에 기간이 있으면 그 기간에 생성/수정된 이슈를 순위에 반영(+2). 관련도를 압도하지 않는 보정 수준.
+        if (dateRange && (dayInRange(i.fields?.updated, dateRange.from, dateRange.to) || dayInRange(i.fields?.created, dateRange.from, dateRange.to))) s += 2;
         return s;
       };
-      issues = [...issues].sort((a: any, b: any) => scoreIssue(b) - scoreIssue(a)).slice(0, 10);
+      // 재랭킹: 점수 1회 계산 후 정렬. 전체검색 모드에서만 GCP 포함 프로젝트를 1차 정렬키로 앞세우고(비-GCP=게임 후순위),
+      // 관련도 점수를 2차 키로. Array.sort는 stable → 동점은 JQL의 updated DESC 순서 유지.
+      const scored = textIssues.map((i: any) => ({ i, score: scoreIssue(i), prio: containsGcp(jiraProjectOf(i.key)) }));
+      scored.sort((a, b) => {
+        if (isAllSpaces && a.prio !== b.prio) return a.prio ? -1 : 1;
+        return b.score - a.score;
+      });
+      const rankedText = scored.slice(0, 10).map((x) => x.i);
+
+      // 정확 키 조회 결과는 항상 포함(우선), 퍼지 검색 결과는 재랭킹 후 상위 10건. 중복은 키 기준 제거.
+      const seenKeys = new Set(keyIssues.map((i: any) => i.key));
+      const issues = [...keyIssues, ...rankedText.filter((i: any) => !seenKeys.has(i.key))];
 
       return fallbackNote + issues.map((i: any) => {
         let desc = extractTextFromJira(i.fields?.description);
@@ -214,7 +313,10 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
             commentsText = i.fields.comment.comments.slice(-5).map((c: any) => `- ${extractTextFromJira(c.body).substring(0, 500)}`).join('\n');
         }
         const issueLink = `${baseUrl}/browse/${i.key}`;
-        return `[일감]: ${i.key}\n[링크]: ${issueLink}\n[제목]: ${i.fields?.summary} (${i.fields?.status?.name})\n[본문]: ${desc.substring(0, 4000)}\n[댓글]:\n${commentsText || '없음'}`;
+        const created = (i.fields?.created || '').slice(0, 10);
+        const updated = (i.fields?.updated || '').slice(0, 10);
+        const dateLine = `[생성]: ${created || '알수없음'}\n[수정]: ${updated || '알수없음'}`;
+        return `[일감]: ${i.key}\n[링크]: ${issueLink}\n[제목]: ${i.fields?.summary} (${i.fields?.status?.name})\n${dateLine}\n[본문]: ${desc.substring(0, 4000)}\n[댓글]:\n${commentsText || '없음'}`;
       }).join('\n\n--------------------\n\n');
     }
 
@@ -225,14 +327,19 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
       const spaces = config.confSpaces?.length > 0 ? `space in (${config.confSpaces.map((s: string) => `"${s}"`).join(', ')}) AND ` : '';
       if (!args.keywords || args.keywords.length === 0) return "검색 키워드가 없습니다.";
       const keywordClauses = buildTextClauses(args.keywords);
+      // 'confSpaces'가 비어있음 = '모든 스페이스' 옵션. 이때만 게임(비-GCP) 스페이스를 랭킹 후순위로 미룬다.
+      const isAllSpaces = !(config.confSpaces?.length > 0);
+      // 기간 필터(선택). from/to가 둘 다 YYYY-MM-DD일 때만 사용(주입 방지).
+      const dateRange = args.dateRange && isYmd(args.dateRange.from) && isYmd(args.dateRange.to) ? args.dateRange : null;
 
       // 🌟 공통 헬퍼 함수 재사용 (중복 코드 제거)
       const { authHeader, baseUrl } = getAtlassianAuth();
 
-      // order by를 지정하지 않아 CQL 기본 정렬(관련도 relevance)을 사용 → 최신순보다 질문 연관 문서가 상위로
+      // order by를 지정하지 않아 CQL 기본 정렬(관련도 relevance)을 사용 → 최신순보다 질문 연관 문서가 상위로.
+      // expand: body.view(렌더 HTML, 매크로 앵커 보존) + space(GCP 판정용 스페이스 키) + version(수정일)/history(생성일).
       const runConfSearch = async (cql: string): Promise<any[] | string> => {
         console.log(`[Confluence Search] CQL: ${cql}`);
-        const res = await nodeHttpsFetch(`${baseUrl}/wiki/rest/api/content/search?cql=${encodeURIComponent(cql)}&limit=12&expand=body.plain`, {
+        const res = await nodeHttpsFetch(`${baseUrl}/wiki/rest/api/content/search?cql=${encodeURIComponent(cql)}&limit=12&expand=body.view,space,version,history`, {
           method: 'GET',
           headers: {
             'Authorization': authHeader,
@@ -258,11 +365,44 @@ export async function executeMcpTool(name: string, args: any, config: any): Prom
         if (typeof results === 'string') return results;
         fallbackNote = `[안내: 모든 키워드(${prettyKeywords(args.keywords)})가 동시에 포함된 문서는 없어, 일부 키워드만 일치하는 연관 문서를 반환합니다. 질문과의 연관성을 직접 판단해서 활용하세요.]\n\n`;
       }
+
+      // 기간 확장(선택): 하드 필터로 좁히지 않고, 그 기간에 수정된 관련 문서를 '추가로' 더 끌어와 재현율을 높인다.
+      if (dateRange) {
+        const rangeResults = await runConfSearch(
+          `${spaces}(${keywordClauses.join(' OR ')}) AND lastmodified >= "${dateRange.from}" AND lastmodified <= "${dateRange.to}"`
+        );
+        if (typeof rangeResults !== 'string') {
+          const seen = new Set(results.map((r: any) => r.id));
+          results = [...results, ...rangeResults.filter((r: any) => !seen.has(r.id))];
+        }
+      }
+
       if (results.length === 0) return `검색된 Confluence 문서가 없습니다.`;
+
+      // CQL 관련도 순서를 '보존'하면서(안정정렬) 우선순위 파티션만 얹는다.
+      // 전체검색 모드: GCP 스페이스를 앞으로 → (기간 있으면) 그 기간 수정 문서를 앞으로. 개별 스페이스 모드는 GCP 파티션 생략.
+      if (isAllSpaces || dateRange) {
+        results = [...results].sort((a: any, b: any) => {
+          if (isAllSpaces) {
+            const pa = containsGcp(a.space?.key), pb = containsGcp(b.space?.key);
+            if (pa !== pb) return pa ? -1 : 1;
+          }
+          if (dateRange) {
+            const ia = dayInRange(a.version?.when, dateRange.from, dateRange.to);
+            const ib = dayInRange(b.version?.when, dateRange.from, dateRange.to);
+            if (ia !== ib) return ia ? -1 : 1;
+          }
+          return 0;
+        });
+      }
 
       return fallbackNote + results.map((r: any) => {
         const contentLink = `${baseUrl}/wiki${r._links?.webui || ''}`;
-        return `[문서 제목]: ${r.title}\n[링크]: ${contentLink}\n[본문 내용]: ${(r.body?.plain?.value || '').substring(0, 6000)}`;
+        const bodyText = stripHtml(r.body?.view?.value || '');
+        const created = (r.history?.createdDate || '').slice(0, 10);
+        const updated = (r.version?.when || '').slice(0, 10);
+        const dateLine = `[생성]: ${created || '알수없음'}\n[수정]: ${updated || '알수없음'}`;
+        return `[문서 제목]: ${r.title}\n[링크]: ${contentLink}\n${dateLine}\n[본문 내용]: ${bodyText.substring(0, 6000)}`;
       }).join('\n\n--------------------\n\n');
     }
 

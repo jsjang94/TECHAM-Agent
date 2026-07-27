@@ -51,6 +51,7 @@ interface ChatWindowProps {
   saveConfigAndConnect: (config: any) => Promise<void>
   messages: { text: string; isBot: boolean; isSystem?: boolean }[]
   isChatLoading: boolean
+  progressText?: string
   isSubmittingNote: boolean
   inputText: string
   setInputText: (val: string) => void
@@ -75,7 +76,7 @@ interface ChatWindowProps {
 
 export default function ChatWindow({
   toggleChat, config, initialConfig, isConfiguring, setIsConfiguring, saveConfigAndConnect,
-  messages, isChatLoading, isSubmittingNote, inputText, setInputText, handleSend, handleKeyDown,
+  messages, isChatLoading, progressText, isSubmittingNote, inputText, setInputText, handleSend, handleKeyDown,
   isErrorNoteOpen, setIsErrorNoteOpen, errorNoteForm, setErrorNoteForm, submitErrorNote,
   hasSavedSpaces, showAlert,
   onTitlebarMouseDown, isChatMaximized, onMinimize, onMaximize,
@@ -455,8 +456,16 @@ export default function ChatWindow({
                     )}
                   </div>
                 ))}
+                {isChatLoading && (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                    <div style={{ maxWidth: '80%', padding: '12px 16px', borderRadius: '12px', borderBottomLeftRadius: '4px', fontSize: '14px', lineHeight: '1.5', backgroundColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.75)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span className="loading-dots"><span></span><span></span><span></span></span>
+                      {progressText || '처리 중…'}
+                    </div>
+                  </div>
+                )}
               </div>
-              
+
               {/* 하단 입력창 (flexShrink: 0을 걸어 압착 방지) */}
               <div style={{ padding: '16px 24px 24px 24px', backgroundColor: '#1c1c1e', borderTop: '1px solid #3c3c3e', flexShrink: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.25)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)', padding: '4px 4px 4px 16px' }}>

@@ -34,6 +34,19 @@ const withSearchScope = (cfg: any) => ({
   confSpaces: cfg.confSearchAll ? [] : cfg.confSpaces,
 })
 
+// 에이전트 진행 이벤트(main 'agent-progress')를 사용자용 한국어 문구로 변환.
+// 멀티홉은 15~30초+ 걸려 단계 표시가 없으면 멈춘 것처럼 보인다.
+const progressLabel = (e: { phase: string; round?: number; maxRounds?: number }): string => {
+  switch (e?.phase) {
+    case 'plan': return '질문 분석 중…'
+    case 'search': return '관련 자료 검색 중…'
+    case 'research': return `추가로 확인할 내용 찾는 중… (${e.round}/${e.maxRounds})`
+    case 'followup': return `추가 자료 검색 중… (${e.round}/${e.maxRounds})`
+    case 'synthesize': return '답변 정리 중…'
+    default: return '처리 중…'
+  }
+}
+
 export default function App() {
   const [isChatOpen, setIsChatOpen] = useState(false)
   const [config, setConfig] = useState({
@@ -80,6 +93,8 @@ export default function App() {
   const [isLoginOpen, setIsLoginOpen] = useState(false)
   const [inputText, setInputText] = useState('')
   const [isChatLoading, setIsChatLoading] = useState(false)
+  // 멀티홉 단계 진행 문구. isChatLoading과 별개 상태로 유지(CLAUDE.md 가드레일).
+  const [progressText, setProgressText] = useState('')
   const [isSubmittingNote, setIsSubmittingNote] = useState(false)
   const [messages, setMessages] = useState<{ text: string; isBot: boolean; isSystem: boolean }[]>([])
   const [isErrorNoteOpen, setIsErrorNoteOpen] = useState(false)
@@ -110,6 +125,17 @@ export default function App() {
     localStorage.removeItem('hive_user_email')
     const electron = (window as any).electron
     electron?.ipcRenderer?.invoke('has-credentials').then((ok: boolean) => setHasCredentials(!!ok))
+  }, [])
+
+  // 에이전트 진행 이벤트 구독 → 단계 진행 문구 갱신
+  useEffect(() => {
+    const electron = (window as any).electron
+    if (!electron?.ipcRenderer?.on) return
+    const remove = electron.ipcRenderer.on('agent-progress', (_e: any, p: any) => setProgressText(progressLabel(p)))
+    return () => {
+      if (typeof remove === 'function') remove()
+      else electron.ipcRenderer.removeAllListeners?.('agent-progress')
+    }
   }, [])
 
   // Gemini/Atlassian/Zendesk 연결 상태를 로컬 자격증명으로 직접 확인 (상태 반영은 호출부에서)
@@ -146,7 +172,7 @@ export default function App() {
   useEffect(() => {
     const chatArea = document.getElementById('chat-scroll-area');
     if (chatArea) chatArea.scrollTo({ top: chatArea.scrollHeight, behavior: 'smooth' });
-  }, [messages])
+  }, [messages, isChatLoading, progressText])
 
   useEffect(() => {
     setIsAgentHovered(false)
@@ -243,6 +269,7 @@ export default function App() {
     setInputText('')
     setMessages(prev => [...prev, { text: userMsg, isBot: false, isSystem: false }])
     setIsChatLoading(true)
+    setProgressText('질문 분석 중…')
 
     try {
       const electron = (window as any).electron;
@@ -273,7 +300,7 @@ export default function App() {
         else setMessages(prev => [...prev, { text: `❌ 시스템 에러: ${response.error}`, isBot: true, isSystem: true }]);
       }
     } catch (error: any) { setMessages(prev => [...prev, { text: `[통신 오류] ${error.message}`, isBot: true, isSystem: true }]) }
-    finally { setIsChatLoading(false) }
+    finally { setIsChatLoading(false); setProgressText('') }
   }
 
   const submitErrorNote = async () => {
@@ -346,7 +373,7 @@ export default function App() {
           <ChatWindow
             toggleChat={toggleChat} config={config} initialConfig={initialConfig}
             isConfiguring={isConfiguring} setIsConfiguring={setIsConfiguring} saveConfigAndConnect={saveConfigAndConnect}
-            messages={messages as any} isChatLoading={isChatLoading} isSubmittingNote={isSubmittingNote} inputText={inputText} setInputText={setInputText}
+            messages={messages as any} isChatLoading={isChatLoading} progressText={progressText} isSubmittingNote={isSubmittingNote} inputText={inputText} setInputText={setInputText}
             handleSend={handleSend} handleKeyDown={handleKeyDown}
             integrationsHealth={integrationsHealth}
             isCheckingHealth={isCheckingHealth} onRetryConnections={retryIntegrationsHealth}
